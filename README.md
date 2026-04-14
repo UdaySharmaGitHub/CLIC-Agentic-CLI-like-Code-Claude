@@ -15,6 +15,8 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 
 ---
 
+![CLIC](./resources/images/CLIC%20FIrst%20Post.png)
+
 ## Table of Contents
 
 - [Features](#features)

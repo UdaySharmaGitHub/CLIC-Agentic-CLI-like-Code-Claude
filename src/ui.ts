@@ -29,6 +29,7 @@ export function printBanner(): void {
   console.log(`  ${chalk.white('  🔧 Modify Files')}      │  Find-and-replace text in files`);
   console.log(`  ${chalk.white('  📂 List Dirs')}         │  Browse directory listings`);
   console.log(`  ${chalk.white('  🔍 Search Files')}      │  Glob-based file search`);
+  console.log(`  ${chalk.white('  🌐 Web Search')}        │  Search and Scrape from web`);
   console.log(`  ${chalk.white('  🔗 Agentic Loop')}      │  Auto-chain: plan → execute → verify`);
   console.log(`  ${chalk.white('  📚 Knowledge Base')}    │  Load role/behavior from a file`);
   console.log(`  ${chalk.green('──────────────────────────────────────────────────────────')}`);
