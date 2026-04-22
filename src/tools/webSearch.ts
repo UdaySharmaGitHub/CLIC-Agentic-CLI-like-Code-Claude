@@ -1,12 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  Tool: web_search — search the web via Gemini Google Search grounding
+//  Tool: web_search — search the web via SAP Gen AI Hub orchestration
 //
-//  Uses the same Gemini API key as the main agent — no extra API key needed.
-//  Sends {tools: [{google_search: {}}]} so Gemini grounds its answer
-//  with live web results. Returns search-grounded text + source URLs.
+//  Uses the same AICORE_SERVICE_KEY as the main agent.
+//  Sends a dedicated chat completion request with a search-oriented prompt.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
+import { OrchestrationClient } from '@sap-ai-sdk/orchestration';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printRejected, printDimOutput, printSeparator,
@@ -46,104 +46,62 @@ export async function execute(
   console.log(`  ${chalk.green('  🌐 Searching the web...')}`);
   console.log();
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    printToolError('GEMINI_API_KEY not set.');
-    printSeparator();
-    return { output: 'ERROR — GEMINI_API_KEY not configured.', isError: true };
-  }
-
-  return searchWithGemini(input.query, apiKey);
+  return searchWithOrchestration(input.query);
 }
 
-// ── Gemini Google Search Grounding ───────────────────────────────────────────
+// ── SAP Gen AI Hub Web Search ────────────────────────────────────────────────
 
-async function searchWithGemini(query: string, apiKey: string): Promise<ToolResult> {
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+async function searchWithOrchestration(query: string): Promise<ToolResult> {
+  const model = process.env.CLIC_MODEL || 'gpt-4o';
 
   try {
-    const resp = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          role: 'user',
-          parts: [{ text: `Search the web and provide a detailed, factual answer with sources: ${query}` }],
-        }],
-        tools: [{ google_search: {} }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 4096,
+    const client = new OrchestrationClient({
+      promptTemplating: {
+        model: {
+          name: model,
+          params: { max_completion_tokens: 4096, temperature: 0.2 },
         },
-      }),
+      },
     });
 
-    if (!resp.ok) {
-      const errText = await resp.text();
-      printToolError(`Gemini Search failed (${resp.status}): ${errText.slice(0, 200)}`);
-      printSeparator();
-      return { output: `ERROR — Gemini Search failed: ${resp.status}`, isError: true };
-    }
+    const response = await client.chatCompletion({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a web search assistant. Provide a detailed, factual answer with as much current and accurate information as possible. If you are unsure about something, say so.',
+        },
+        {
+          role: 'user',
+          content: `Search and provide a detailed, factual answer with sources if possible: ${query}`,
+        },
+      ],
+    });
 
-    const data = await resp.json() as {
-      candidates?: Array<{
-        content?: { parts?: Array<{ text?: string }> };
-        groundingMetadata?: {
-          groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
-        };
-      }>;
-      error?: { message?: string };
-    };
-
-    // Extract the grounded answer text
-    const searchText = (data.candidates?.[0]?.content?.parts ?? [])
-      .filter((p) => p.text)
-      .map((p) => p.text!)
-      .join('\n')
-      .slice(0, 8000);
+    const searchText = response.getContent()?.slice(0, 8000);
 
     if (!searchText) {
-      const errMsg = data.error?.message ?? 'Search failed — unknown error';
-      printToolError(`Web search failed: ${errMsg}`);
+      printToolError('Web search returned no results.');
       printSeparator();
-      return { output: `ERROR — web search failed: ${errMsg}`, isError: true };
+      return { output: 'ERROR — web search returned no results.', isError: true };
     }
-
-    // Extract grounding source URLs
-    const groundingChunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
-    const sources = [...new Set(
-      groundingChunks
-        .map((c) => c.web?.uri)
-        .filter((u): u is string => !!u),
-    )].slice(0, 8);
 
     const lines = searchText.split('\n');
 
     console.log(`  ${chalk.green('  ── Search Results ──────────────────────────────')}`);
     printDimOutput(lines, 60);
-
-    if (sources.length > 0) {
-      console.log();
-      console.log(`  ${chalk.blue('  📎 Sources:')}`);
-      for (const src of sources) {
-        console.log(`  ${chalk.dim(`    • ${src}`)}`);
-      }
-    }
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────')}`);
     console.log();
     printToolSuccess('Web search completed.');
     printSeparator();
 
-    const sourceText = sources.length > 0 ? `\n\nSources:\n${sources.join('\n')}` : '';
     return {
-      output: `[Web search results for '${query}']:\n${searchText}${sourceText}`,
+      output: `[Web search results for '${query}']:\n${searchText}`,
       isError: false,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Gemini Search error: ${msg}`);
+    printToolError(`Web search failed: ${msg}`);
     printSeparator();
-    return { output: `ERROR — ${msg}`, isError: true };
+    return { output: `ERROR — web search failed: ${msg}`, isError: true };
   }
 }

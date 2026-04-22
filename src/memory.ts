@@ -1,30 +1,32 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  Memory — chat history persistence (Gemini Content format)
+//  Memory — chat history persistence (OpenAI-compatible message format)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import fs from 'node:fs/promises';
 import chalk from 'chalk';
 import { HISTORY_FILE } from './config.js';
 
-// ── Gemini-compatible message types ──────────────────────────────────────────
+// ── OpenAI-compatible message types (used by SAP AI SDK orchestration) ───────
 
-export type Part =
-  | { text: string }
-  | { functionCall: { name: string; args: Record<string, unknown> } }
-  | { functionResponse: { name: string; response: Record<string, unknown> } };
-
-export interface MessageParam {
-  role: 'user' | 'model';
-  parts: Part[];
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
 }
 
-let messages: MessageParam[] = [];
+export type ChatMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content?: string; tool_calls?: ToolCall[] }
+  | { role: 'tool'; content: string; tool_call_id: string };
 
-export function getMessages(): MessageParam[] {
+let messages: ChatMessage[] = [];
+
+export function getMessages(): ChatMessage[] {
   return messages;
 }
 
-export function pushMessage(msg: MessageParam): void {
+export function pushMessage(msg: ChatMessage): void {
   messages.push(msg);
 }
 

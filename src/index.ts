@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Command } from 'commander';
-import type { GoogleGenerativeAI } from '@google/generative-ai';
+import type { OrchestrationClient } from '@sap-ai-sdk/orchestration';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
@@ -41,9 +41,9 @@ function slashCompleter(line: string): [string[], string] {
 const program = new Command()
   .name('clic')
   .version('4.2.0')
-  .description('CLIC — Command Line Intelligence Companion. An agentic CLI powered by Gemini.')
+  .description('CLIC — Command Line Intelligence Companion. An agentic CLI powered by SAP Gen AI Hub.')
   .option('--kb <path>', 'Knowledge base file path for role/persona')
-  .option('--model <model>', 'Gemini model to use', DEFAULT_MODEL)
+  .option('--model <model>', 'LLM model to use', DEFAULT_MODEL)
   .option('--max-steps <n>', 'Max agent steps per turn', String(DEFAULT_MAX_STEPS))
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
@@ -62,25 +62,26 @@ async function main(prompt: string | undefined, opts: {
   const yolo = opts.yolo ?? false;
 
   // ── Banner ────────────────────────────────────────────────────────────────
-  printBanner();
+  await printBanner();
 
   // ── Setup wizard with @clack/prompts ──────────────────────────────────────
   intro(chalk.cyan.bold(' CLIC Setup '));
 
-  // API Key
-  let apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) {
+  // API Key / Service Key
+  let serviceKey = process.env.AICORE_SERVICE_KEY || '';
+  if (!serviceKey) {
     const keyInput = await password({
-      message: 'Gemini API Key:',
-      validate: (val) => (val.length < 10 ? 'Please enter a valid API key' : undefined),
+      message: 'SAP AI Core Service Key (JSON):',
+      validate: (val) => (val.length < 10 ? 'Please enter a valid service key JSON' : undefined),
     });
     if (isCancel(keyInput)) {
       console.log(chalk.red('  Cancelled.'));
       process.exit(0);
     }
-    apiKey = keyInput;
+    serviceKey = keyInput;
+    process.env.AICORE_SERVICE_KEY = serviceKey;
   } else {
-    console.log(chalk.green('  ✅ API key loaded from environment.'));
+    console.log(chalk.green('  ✅ AICORE_SERVICE_KEY loaded from environment.'));
   }
 
   // Knowledge Base (optional)
@@ -131,13 +132,9 @@ async function main(prompt: string | undefined, opts: {
 
   outro(chalk.green(' Setup complete '));
 
-  // ── Expose config to process.env so tools (e.g. web_search) can access them
-  process.env.GEMINI_API_KEY = apiKey;
-  process.env.GEMINI_MODEL = model;
-
   // ── Build system prompt + client ──────────────────────────────────────────
   const systemPrompt = buildSystemPrompt(knowledgeBase);
-  const client = createClient(apiKey);
+  const client = createClient(model);
 
   // ── Load or initialise history ────────────────────────────────────────────
   await loadHistory();
@@ -171,7 +168,7 @@ async function main(prompt: string | undefined, opts: {
   if (prompt) {
     const singleRl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const singleConfirmFn = createSingleTurnConfirmFn(singleRl);
-    pushMessage({ role: 'user', parts: [{ text: prompt }] });
+    pushMessage({ role: 'user', content: prompt });
     await runAgentTurn(client, getMessages(), systemPrompt, {
       model, maxSteps, confirm: singleConfirmFn, showRaw,
     });
@@ -258,12 +255,14 @@ async function main(prompt: string | undefined, opts: {
         console.log(chalk.cyan.bold(`  📜 Chat History (${msgs.length} messages):`));
         printSeparator();
         for (const msg of msgs) {
-          const role = msg.role === 'user' ? '🧑 You' : '🤖 AI';
-          const contentStr = msg.parts
-            ?.map(p => ('text' in p && p.text) ? p.text : '')
-            .filter(Boolean)
-            .join(' ') || '[function call/response]';
-          const preview = contentStr.split('\n')[0]?.slice(0, 100) || '[function call/response]';
+          const role = msg.role === 'user' ? '🧑 You' : msg.role === 'assistant' ? '🤖 AI' : `🔧 ${msg.role}`;
+          let contentStr = '';
+          if ('content' in msg && typeof msg.content === 'string') {
+            contentStr = msg.content;
+          } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+            contentStr = `[tool call: ${msg.tool_calls.map((tc: any) => tc.function.name).join(', ')}]`;
+          }
+          const preview = contentStr.split('\n')[0]?.slice(0, 100) || '[tool call/response]';
           console.log(`  ${role}: ${preview}`);
         }
         printSeparator();
@@ -304,7 +303,7 @@ async function main(prompt: string | undefined, opts: {
     }
 
     // ── Agent turn ────────────────────────────────────────────────────────
-    pushMessage({ role: 'user', parts: [{ text: trimmed }] });
+    pushMessage({ role: 'user', content: trimmed });
 
     try {
       await runAgentTurn(client, getMessages(), systemPrompt, {

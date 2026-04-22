@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export function buildSystemPrompt(knowledgeBase?: string): string {
-  let prompt = `You are CLIC — Command Line Intelligence Companion — a powerful AI assistant running inside a terminal.
+  let prompt = `You are CLIC — Command Line Intelligence Companion , Created By UdaySharmaGitHub — a powerful AI assistant running inside a terminal.
 You can answer any question and interact with the local filesystem and shell using the tools provided.
 
 System context:
