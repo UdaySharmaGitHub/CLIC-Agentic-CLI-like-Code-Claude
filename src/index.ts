@@ -8,17 +8,18 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Command } from 'commander';
-import type { OrchestrationClient } from '@sap-ai-sdk/orchestration';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
 import { printBanner, printHelp, printStatus, printSeparator } from './ui.js';
-import { runAgentTurn, type AgentOptions } from './agent.js';
+import { runAgentTurn } from './agent.js';
 import { createClient } from './gemini.js';
 import { buildSystemPrompt } from './prompts.js';
 import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, HISTORY_FILE, loadKnowledgeBase } from './config.js';
 import { getMessages, pushMessage, clearMessages, messageCount, loadHistory, saveHistory } from './memory.js';
 import type { ConfirmFn } from './tools/index.js';
+import { fetchDeployedModelOptions } from './tools/listModelfromSapAiCore.js';
+import ora from 'ora';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ async function main(prompt: string | undefined, opts: {
   maxSteps: string;
   yolo?: boolean;
 }) {
-  const model = opts.model;
+  let model = opts.model;
   const maxSteps = parseInt(opts.maxSteps, 10) || DEFAULT_MAX_STEPS;
   const yolo = opts.yolo ?? false;
 
@@ -82,6 +83,38 @@ async function main(prompt: string | undefined, opts: {
     process.env.AICORE_SERVICE_KEY = serviceKey;
   } else {
     console.log(chalk.green('  ✅ AICORE_SERVICE_KEY loaded from environment.'));
+  }
+
+  // ── Model selection — fetch live deployments from SAP AI Core ─────────────
+  // Skipped only when --model flag is explicitly passed (differs from default).
+  if (opts.model === DEFAULT_MODEL) {
+    const spinner = ora({ text: chalk.dim('  Fetching available models from SAP AI Core...'), color: 'cyan' }).start();
+    try {
+      const modelOptions = await fetchDeployedModelOptions();
+      spinner.stop();
+
+      if (modelOptions.length > 0) {
+        const modelChoice = await select({
+          message: 'Select the LLM model to use (↑ ↓ to navigate, Enter to confirm):',
+          options: modelOptions,
+        });
+
+        if (isCancel(modelChoice)) {
+          console.log(chalk.red('  Cancelled.'));
+          process.exit(0);
+        }
+
+        model = modelChoice as string;
+      } else {
+        console.log(chalk.yellow(`  ⚠️  No running deployments found. Using default: ${model}`));
+      }
+    } catch (err) {
+      spinner.stop();
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(chalk.yellow(`  ⚠️  Could not fetch models (${errMsg}). Using: ${model}`));
+    }
+  } else {
+    console.log(chalk.green(`  ✅ Model: ${chalk.white(model)} (set via --model flag)`));
   }
 
   // Knowledge Base (optional)

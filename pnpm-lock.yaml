@@ -11,6 +11,9 @@ importers:
       '@clack/prompts':
         specifier: ^0.9.1
         version: 0.9.1
+      '@sap-ai-sdk/ai-api':
+        specifier: ^2.9.0
+        version: 2.9.0
       '@sap-ai-sdk/orchestration':
         specifier: ^2.9.0
         version: 2.9.0

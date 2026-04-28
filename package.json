@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
+    "@sap-ai-sdk/ai-api": "^2.9.0",
     "@sap-ai-sdk/orchestration": "^2.9.0",
     "axios": "^1.15.0",
     "chalk": "^5.4.1",

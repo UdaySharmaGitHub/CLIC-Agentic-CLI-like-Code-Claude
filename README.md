@@ -1,6 +1,6 @@
 # CLIC — Command Line Intelligence Companion
 
-> **v4.2** — An agentic CLI powered by Google Gemini with streaming, function calling, and a modular tool system.
+> **v4.2** — An agentic CLI powered by SAP AI Core Orchestration Service with streaming, function calling, and a modular tool system.
 
 ```
    ██████╗██╗     ██╗ ██████╗
@@ -15,7 +15,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 
 ---
 
-![CLIC](./resources/images/CLIC%20FIrst%20Post.png)
+![CLIC](./resources/images/CLIC.png)
 
 ## Table of Contents
 
@@ -35,6 +35,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
   - [REPL Commands](#repl-commands)
 - [Adding a New Tool](#adding-a-new-tool)
 - [Knowledge Base](#knowledge-base)
+- [Persistent Agent Memory](#persistent-agent-memory)
 - [Safety](#safety)
 - [Environment Variables](#environment-variables)
 
@@ -55,6 +56,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | 🌐 Web Search | Real-time web search via Brave or Tavily API |
 | 🔗 Agentic Loop | Auto-chain multiple steps: plan → execute → verify |
 | 📚 Knowledge Base | Load role/behavior/persona from a file |
+| 🧠 Persistent Memory | Knowledge Graph memory in `chat_history.json` — agent remembers across sessions, no third-party library |
 | 🛡️ Safety Layer | Blocked commands + protected paths + human approval |
 
 ---
@@ -63,7 +65,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 
 | Package | Role |
 |---|---|
-| **`@google/generative-ai`** | Gemini API with streaming + native function calling |
+| **`@sap-ai-sdk/orchestration`** | SAP AI Core Orchestration Service with streaming + function calling |
 | **`commander`** | CLI argument parsing (`--model`, `--kb`, `--yolo`, etc.) |
 | **`@clack/prompts`** | Interactive setup wizard (API key, KB file) |
 | **`execa`** | Safe subprocess execution with timeout + error capture |
@@ -83,7 +85,7 @@ clic/
 ├── src/
 │   ├── index.ts              ← CLI entry point + REPL loop
 │   ├── agent.ts              ← ReAct agentic loop (runAgentTurn)
-│   ├── gemini.ts             ← Google Generative AI SDK wrapper (createClient, streamMessage)
+│   ├── gemini.ts             ← SAP AI SDK OrchestrationClient wrapper (streamMessage)
 │   ├── prompts.ts            ← System prompt builder (buildSystemPrompt)
 │   ├── memory.ts             ← Chat history management (load/save/push/clear)
 │   ├── safety.ts             ← Blocked commands + protected paths
@@ -117,53 +119,63 @@ clic/
 
 ### High-Level Flow
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   index.ts   │────▶│   agent.ts   │────▶│  gemini.ts  │
-│  (CLI + REPL)│     │ (ReAct Loop) │     │ (SDK Call)  │
-└─────────────┘     └──────┬───────┘     └──────┬──────┘
-                           │                     │
-                           │  functionCall parts │  streaming response
-                           ▼                     │
-                    ┌──────────────┐             │
-                    │ tools/index  │◀────────────┘
-                    │  (Registry)  │
-                    └──────┬───────┘
-                           │
-           ┌───────┬───────┼───────┬───────┬────────┐
-           ▼       ▼       ▼       ▼       ▼        ▼
-        readFile writeFile runCmd listDir search  webSearch
+```mermaid
+flowchart TD
+    User(["👤 User Input\nREPL / Single-turn"])
+    index["index.ts\nCLI + REPL"]
+    memory["memory.ts\nChat History"]
+    agent["agent.ts\nReAct Loop"]
+    gemini["gemini.ts\nSAP AI SDK Orchestration"]
+    registry["tools/index.ts\nTool Registry"]
+
+    readFile["read_file"]
+    writeFile["write_file"]
+    appendFile["append_file"]
+    modifyFile["modify_file"]
+    listDir["list_directory"]
+    runCmd["run_command"]
+    search["search_files"]
+    webSearch["web_search"]
+
+    User --> index
+    index --> memory
+    memory --> agent
+    agent -->|"streamMessage()"| gemini
+    gemini -->|"text + tool_calls (streaming)"| agent
+    agent -->|"executeTool()"| registry
+    registry --> readFile & writeFile & appendFile & modifyFile
+    registry --> listDir & runCmd & search & webSearch
+    registry -->|"tool_result"| agent
+    agent -->|"no more tool_calls → end_turn"| index
+    index --> User
 ```
 
 ### ReAct Agent Loop
 
 The core pattern is a **ReAct loop** (Reason + Act). This runs in `agent.ts`:
 
-```
-User sends message
-        │
-        ▼
-┌───────────────────────┐
-│  Call Claude API      │◀──────────────────────┐
-│  (streaming response) │                       │
-└───────────┬───────────┘                       │
-            │                                   │
-            ▼                                   │
-   ┌─── stop_reason? ───┐                      │
-   │                     │                      │
-   ▼                     ▼                      │
- "end_turn"         "tool_use"                  │
-   │                     │                      │
-   ▼                     ▼                      │
- ✅ Done         Execute tool(s)                │
-                  with user approval             │
-                         │                      │
-                         ▼                      │
-                  Send tool_result ─────────────┘
-                  back to Claude
+```mermaid
+flowchart TD
+    Start(["💬 User sends message"])
+    CallAPI["⚙️ Call SAP AI Core\n— streaming response —"]
+    Decision{{"stop_reason?"}}
+    EndTurn(["✅ end_turn\nReturn response to user"])
+    ToolUse["🔧 tool_use\nExecute tool(s)\nwith user approval"]
+    SaveResult["📩 Push tool_result\nback into context"]
+    StepCheck{{"Max steps\nreached?"}}
+    Abort(["⛔ Abort\nMax steps exceeded"])
+
+    Start --> CallAPI
+    CallAPI --> Decision
+    Decision -->|"end_turn"| EndTurn
+    Decision -->|"tool_use"| ToolUse
+    ToolUse --> SaveResult
+    SaveResult --> StepCheck
+    StepCheck -->|"No"| CallAPI
+    StepCheck -->|"Yes"| Abort
 ```
 
-**Key design**: Gemini's native function calling API handles structured calls — no manual JSON parsing or `done` flag needed. The absence of further function calls naturally signals when the agent is finished.
+**Key design**: SAP AI SDK's native function calling handles structured tool calls — no manual JSON parsing or `done` flag needed. The absence of further function calls naturally signals when the agent is finished.
 
 **Step limit**: Max 15 steps per user turn (configurable via `--max-steps`).
 
@@ -207,8 +219,8 @@ tools/index.ts
 | Module | Purpose |
 |---|---|
 | **`index.ts`** | CLI parsing (commander), setup wizard (@clack/prompts), REPL loop, REPL commands (/exit, /clear, /history, /status, /help, /raw) |
-| **`agent.ts`** | The ReAct loop — calls Gemini, handles streaming, executes tools, feeds results back, loops until done or max steps |
-| **`gemini.ts`** | Thin wrapper around `@google/generative-ai` — `createClient()` and `streamMessage()` |
+| **`agent.ts`** | The ReAct loop — calls SAP AI Core via OrchestrationClient, handles streaming, executes tools, feeds results back, loops until done or max steps |
+| **`gemini.ts`** | Thin wrapper around `@sap-ai-sdk/orchestration` — `OrchestrationClient` + `streamMessage()` |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional knowledge base |
 | **`memory.ts`** | Manages `MessageParam[]` in memory — `pushMessage()`, `getMessages()`, `clearMessages()`, `loadHistory()`, `saveHistory()` |
 | **`config.ts`** | Loads `.env`, exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`), loads KB files |
@@ -244,7 +256,7 @@ cp .env.example .env
 Edit `.env` and add your API key:
 
 ```env
-GEMINI_API_KEY=AIza...
+AICORE_SERVICE_KEY=AIza...
 
 # Optional: for web search
 BRAVE_API_KEY=BSA...
@@ -252,7 +264,7 @@ BRAVE_API_KEY=BSA...
 TAVILY_API_KEY=tvly-...
 ```
 
-If you don't set `GEMINI_API_KEY` in `.env`, the setup wizard will prompt you interactively.
+If you don't set `AICORE_SERVICE_KEY` in `.env`, the setup wizard will prompt you interactively.
 
 ### Run
 
@@ -304,10 +316,40 @@ Runs the prompt, outputs the result, and exits.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--model <model>` | `gemini-2.5-flash` | Gemini model to use |
+| `--model <model>` | `gpt-4o` | Model to use via SAP AI Core (see available models below) |
 | `--kb <path>` | — | Path to a knowledge base / role file |
 | `--max-steps <n>` | `15` | Max agent steps per user turn |
 | `--yolo` | `false` | Auto-approve all actions (skip confirmations) |
+
+#### Available Models (SAP AI Core)
+
+| Model ID | Provider |
+|---|---|
+| `gpt-4o` *(default)* | OpenAI |
+| `gpt-4o-mini` | OpenAI |
+| `gpt-4.1` | OpenAI |
+| `gpt-4.1-mini` | OpenAI |
+| `gpt-5` | OpenAI |
+| `gpt-5-mini` | OpenAI |
+| `o3-mini` | OpenAI |
+| `anthropic--claude-4.6-sonnet` | Anthropic |
+| `anthropic--claude-4.6-opus` | Anthropic |
+| `anthropic--claude-4.5-sonnet` | Anthropic |
+| `anthropic--claude-4.5-opus` | Anthropic |
+| `gemini-2.5-flash` | Google |
+| `gemini-2.5-pro` | Google |
+| `gemini-1.5-pro` | Google |
+| `mistralai--mistral-large-instruct` | Mistral AI |
+| `mistralai--mistral-medium-instruct` | Mistral AI |
+| `defaultOrchestrationConfig` | SAP AI Core default |
+
+```bash
+# Example: switch to Claude Sonnet
+pnpm dev -- --model anthropic--claude-4.6-sonnet
+
+# Example: use GPT-5
+pnpm dev -- --model gpt-5
+```
 
 ### REPL Commands
 
@@ -333,14 +375,14 @@ Create `src/tools/myNewTool.ts`:
 ```typescript
 import type { ToolDefinition, ConfirmFn, ToolResult } from './types.js';
 
-// 1. Define the JSON schema (sent to Gemini)
+// 1. Define the JSON schema (sent to SAP AI Core)
 export const definition: ToolDefinition = {
   name: 'my_new_tool',
-  description: 'What this tool does — Gemini reads this to decide when to use it.',
+  description: 'What this tool does — SAP AI Core reads this to decide when to use it.',
   parameters: {
     type: 'object',
     properties: {
-      param1: { type: 'string', description: 'Description for Gemini' },
+      param1: { type: 'string', description: 'Description for the model' },
       param2: { type: 'number', description: 'Another param' },
     },
     required: ['param1'],
@@ -406,6 +448,52 @@ When troubleshooting, check logs first, then configs.
 
 ---
 
+## Persistent Agent Memory
+
+CLIC maintains a **persistent, session-spanning memory** for the AI agent — built entirely from scratch with no third-party memory or vector-store library.
+
+### How it works
+
+Every conversation turn (user message + agent response + tool results) is serialised and saved to `chat_history.json` in a **Knowledge Graph structure**. On the next session, the agent loads this graph and reconstructs the full context before processing your first message — so it already knows what you worked on, what decisions were made, and what files were touched.
+
+```
+chat_history.json  ←  Knowledge Graph
+┌──────────────────────────────────────────────┐
+│  nodes[]                                     │
+│    id · role · content · timestamp           │
+│    tool_calls[] · tool_results[]             │
+│                                              │
+│  edges[]  (node → node relationships)        │
+│    source · target · relation                │
+│      "follows" | "tool_of" | "result_of"     │
+└──────────────────────────────────────────────┘
+```
+
+### Key properties
+
+| Property | Detail |
+|---|---|
+| **Zero dependencies** | Pure Node.js `fs` + `JSON` — no LangChain, no vector DB, no external memory service |
+| **Survives restarts** | History is written to disk after every turn and on `/exit` |
+| **Full context replay** | The entire Knowledge Graph is injected back into the agent's context window on startup |
+| **Selective clear** | Use `/clear` in the REPL to wipe memory and start a fresh session |
+| **Configurable path** | Override the default file via `AGENT_HISTORY_FILE` env var |
+
+### Result
+
+The agent remembers previous tasks, code it wrote, commands it ran, and conclusions it reached — across any number of sessions — without you having to re-explain context each time.
+
+```
+Session 1:  "Create a FastAPI server in server.py"
+            → agent writes server.py, saves memory
+
+Session 2:  "Add authentication to the server"
+            → agent already knows server.py exists and what's in it
+            → picks up exactly where it left off
+```
+
+---
+
 ## Safety
 
 ### Blocked Commands
@@ -439,7 +527,7 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 
 | Variable | Required | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | Yes* | Your Google Gemini API key (*prompted interactively if missing) |
+| `AICORE_SERVICE_KEY` | Yes* | SAP AI Core service key (JSON string from your AI Core instance; prompted interactively if missing) |
 | `BRAVE_API_KEY` | No | Brave Search API key (for web_search tool) |
 | `TAVILY_API_KEY` | No | Tavily API key (alternative to Brave for web_search) |
 | `AGENT_HISTORY_FILE` | No | Custom path for chat history (default: `chat_history.json`) |
@@ -448,12 +536,12 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 
 ## Evolution from Bash Version
 
-CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini. The TypeScript rewrite keeps Google Gemini but gains a first-class SDK, streaming, and a modular architecture:
+CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini. The TypeScript rewrite migrates to **SAP AI Core Orchestration Service** and gains a first-class SDK, streaming, and a modular architecture:
 
-| Bash v4.1 (Gemini) | TypeScript v4.2 (Gemini) |
+| Bash v4.1 (Gemini) | TypeScript v4.2 (SAP AI Core) |
 |---|---|
-| Manual JSON parsing + `done` flag | Native function calling API — no JSON parsing |
-| `jq` + `curl` for API calls | `@google/generative-ai` SDK with streaming |
+| Manual JSON parsing + `done` flag | Native function calling — no JSON parsing |
+| `jq` + `curl` for API calls | `@sap-ai-sdk/orchestration` SDK with streaming |
 | `done: true/false` loop control | Absence of function calls naturally ends the loop |
 | `python3` for find-and-replace | Native `String.indexOf` + substring |
 | `eval` for shell commands | `execa` with timeout + error capture |
