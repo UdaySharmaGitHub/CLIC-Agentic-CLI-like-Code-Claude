@@ -264,6 +264,10 @@ export function printSeparator(): void {
   console.log(chalk.dim(`  ${'─'.repeat(W + 4)}`));
 }
 
+export function promptPrintSeperator():void{
+  console.log(chalk.cyanBright(`  ${'─'.repeat(W + 5)}`));
+}
+
 export function printToolHeader(toolName: string, detail: string): void {
   console.log();
   console.log(boxTop());

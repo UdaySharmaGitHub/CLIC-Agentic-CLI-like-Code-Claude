@@ -15,7 +15,7 @@ import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
 export const definition: ToolDefinition = {
   name: 'web_search',
-  description: 'Search the web for real-time / up-to-date information. Use this when the user asks about current events, latest versions, live data, or anything your training data may not cover.',
+  description: 'Answer questions about the real world — current events, people, companies, science, technology, sports, finance, geography, history, or any general knowledge topic. Use this whenever the user asks about anything beyond coding or local files.',
   parameters: {
     type: 'object',
     properties: {
@@ -68,11 +68,19 @@ async function searchWithOrchestration(query: string): Promise<ToolResult> {
       messages: [
         {
           role: 'system',
-          content: 'You are a web search assistant. Provide a detailed, factual answer with as much current and accurate information as possible. If you are unsure about something, say so.',
+          content: `You are a knowledgeable research assistant with broad, up-to-date knowledge about the world.
+When asked a question:
+- Answer directly and thoroughly using everything you know.
+- Cover facts, context, background, and relevant details.
+- If the topic involves people, companies, events, science, technology, news, sports, finance, geography, or culture — answer confidently.
+- Structure your response clearly: use bullet points, sections, or numbered lists where helpful.
+- If you know relevant figures, dates, names, or statistics, include them.
+- If the information may have changed recently (e.g. stock prices, breaking news), say so honestly — but still provide the best answer you can from your knowledge.
+- Never say "I cannot search the internet." You have extensive world knowledge — use it.`,
         },
         {
           role: 'user',
-          content: `Search and provide a detailed, factual answer with sources if possible: ${query}`,
+          content: `Question: ${query}\n\nProvide a detailed, well-structured answer.`,
         },
       ],
     });

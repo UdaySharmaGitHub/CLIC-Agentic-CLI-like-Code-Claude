@@ -11,7 +11,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
-import { printBanner, printHelp, printStatus, printSeparator } from './ui.js';
+import { printBanner, printSeparator, promptPrintSeperator } from './ui.js';
 import { runAgentTurn } from './agent.js';
 import { createClient } from './gemini.js';
 import { buildSystemPrompt } from './prompts.js';
@@ -19,23 +19,13 @@ import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, HISTORY_FILE, loadKnowledgeBase } fro
 import { getMessages, pushMessage, clearMessages, messageCount, loadHistory, saveHistory } from './memory.js';
 import type { ConfirmFn } from './tools/index.js';
 import { fetchDeployedModelOptions } from './tools/listModelfromSapAiCore.js';
+// Commands
+import { executeCommand, isSlashedCommand, slashCompleter, type CommandContext } from './commands/index.js';
 import ora from 'ora';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
 let showRaw = false;
-
-// ── Slash commands + completer ───────────────────────────────────────────────
-
-const SLASH_COMMANDS = ['/exit', '/quit', '/clear', '/history', '/status', '/help', '/raw'];
-
-function slashCompleter(line: string): [string[], string] {
-  if (line.startsWith('/')) {
-    const hits = SLASH_COMMANDS.filter(c => c.startsWith(line));
-    return [hits.length ? hits : SLASH_COMMANDS, line];
-  }
-  return [[], line];
-}
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -246,8 +236,9 @@ async function main(prompt: string | undefined, opts: {
 
     let userInput: string;
     try {
-      console.log(chalk.bold('  🧑 You:'));
-      userInput = await ask('  > ');
+      promptPrintSeperator();
+      userInput = await ask(`  ${chalk.cyan('❯')} `);
+      promptPrintSeperator();
     } catch {
       // Only break if stdin is truly destroyed (Ctrl+D)
       if (process.stdin.destroyed) {
@@ -260,72 +251,16 @@ async function main(prompt: string | undefined, opts: {
     const trimmed = userInput.trim();
 
     // ── REPL commands ─────────────────────────────────────────────────────
-    if (trimmed === '/exit' || trimmed === '/quit') {
-      exiting = true;
-      await saveHistory();
-      console.log();
-      console.log(chalk.green(`  ✅ History saved → ${HISTORY_FILE}`));
-      console.log(chalk.cyan('  👋 Goodbye!'));
-      console.log();
-      clearInterval(keepAlive);
-      break;
-    }
-
-    if (trimmed === '/clear') {
-      clearMessages();
-      await saveHistory();
-      console.log(chalk.yellow('  🗑️  History cleared.'));
-      console.log();
-      continue;
-    }
-
-    if (trimmed === '/history') {
-      const msgs = getMessages();
-      if (msgs.length === 0) {
-        console.log(chalk.dim('  No history yet.'));
-      } else {
-        console.log();
-        console.log(chalk.cyan.bold(`  📜 Chat History (${msgs.length} messages):`));
-        printSeparator();
-        for (const msg of msgs) {
-          const role = msg.role === 'user' ? '🧑 You' : msg.role === 'assistant' ? '🤖 AI' : `🔧 ${msg.role}`;
-          let contentStr = '';
-          if ('content' in msg && typeof msg.content === 'string') {
-            contentStr = msg.content;
-          } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
-            contentStr = `[tool call: ${msg.tool_calls.map((tc: any) => tc.function.name).join(', ')}]`;
-          }
-          const preview = contentStr.split('\n')[0]?.slice(0, 100) || '[tool call/response]';
-          console.log(`  ${role}: ${preview}`);
-        }
-        printSeparator();
+    if (isSlashedCommand(trimmed)) {
+      const ctx: CommandContext = { model, maxSteps, showRaw, kbFile };
+      const result = await executeCommand(trimmed, ctx);
+      if (result.type === 'exit') {
+        clearInterval(keepAlive);
+        break;
       }
-      console.log();
-      continue;
-    }
-
-    if (trimmed === '/status') {
-      printStatus({
-        messageCount: messageCount(),
-        maxSteps,
-        showRaw,
-        kbFile,
-        model,
-      });
-      continue;
-    }
-
-    if (trimmed === '/help') {
-      printHelp();
-      continue;
-    }
-
-    if (trimmed === '/raw') {
-      showRaw = !showRaw;
-      console.log(showRaw
-        ? chalk.yellow('  Debug JSON output: ON (type \'/raw\' again to turn off)')
-        : chalk.dim('  Debug JSON output: OFF'));
-      console.log();
+      if (result.type === 'update') {
+        if (result.updates.showRaw !== undefined) showRaw = result.updates.showRaw;
+      }
       continue;
     }
 
