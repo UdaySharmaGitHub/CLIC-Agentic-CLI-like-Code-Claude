@@ -34,6 +34,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
   - [CLI Flags](#cli-flags)
   - [REPL Commands](#repl-commands)
 - [Adding a New Tool](#adding-a-new-tool)
+- [Adding a New Command](#adding-a-new-command)
 - [Knowledge Base](#knowledge-base)
 - [Persistent Agent Memory](#persistent-agent-memory)
 - [Safety](#safety)
@@ -87,10 +88,25 @@ clic/
 │   ├── agent.ts              ← ReAct agentic loop (runAgentTurn)
 │   ├── gemini.ts             ← SAP AI SDK OrchestrationClient wrapper (streamMessage)
 │   ├── prompts.ts            ← System prompt builder (buildSystemPrompt)
-│   ├── memory.ts             ← Chat history management (load/save/push/clear)
+│   ├── memory.ts             ← Chat history management (load/save/push/clear/trim)
 │   ├── safety.ts             ← Blocked commands + protected paths
 │   ├── config.ts             ← Environment loading, constants, KB loader
 │   ├── ui.ts                 ← Banner, help, status, chalk formatters
+│   ├── commands/
+│   │   ├── index.ts          ← Command registry + router + tab completer
+│   │   ├── types.ts          ← Shared types (SlashCommand, CommandContext, CommandAction)
+│   │   ├── compact.ts        ← /compact — summarize + compress history
+│   │   ├── model.ts          ← /model  — switch model mid-session
+│   │   ├── role.ts           ← /role   — switch KB/persona mid-session
+│   │   ├── undo.ts           ← /undo   — remove last exchange
+│   │   ├── retry.ts          ← /retry  — regenerate last response
+│   │   ├── tokens.ts         ← /tokens — estimate token usage
+│   │   ├── status.ts         ← /status — show system info
+│   │   ├── history.ts        ← /history — show conversation history
+│   │   ├── clear.ts          ← /clear  — clear history
+│   │   ├── raw.ts            ← /raw    — toggle debug output
+│   │   ├── help.ts           ← /help   — show help menu
+│   │   └── exit.ts           ← /exit   — quit agent
 │   └── tools/
 │       ├── index.ts          ← Tool registry + router
 │       ├── types.ts          ← Shared types (ConfirmFn, ToolResult, ToolDefinition)
@@ -126,8 +142,10 @@ flowchart TD
     memory["memory.ts\nChat History"]
     agent["agent.ts\nReAct Loop"]
     gemini["gemini.ts\nSAP AI SDK Orchestration"]
-    registry["tools/index.ts\nTool Registry"]
+    cmdRegistry["commands/index.ts\nCommand Registry"]
+    toolRegistry["tools/index.ts\nTool Registry"]
 
+    compact["/compact\n/model · /role\n/undo · /retry\n/tokens · …"]
     readFile["read_file"]
     writeFile["write_file"]
     appendFile["append_file"]
@@ -137,15 +155,19 @@ flowchart TD
     search["search_files"]
     webSearch["web_search"]
 
-    User --> index
+    User -->|"slash command"| index
+    User -->|"natural language"| index
+    index -->|"slash command"| cmdRegistry
+    cmdRegistry --> compact
+    compact -->|"update / retry / exit"| index
     index --> memory
     memory --> agent
     agent -->|"streamMessage()"| gemini
     gemini -->|"text + tool_calls (streaming)"| agent
-    agent -->|"executeTool()"| registry
-    registry --> readFile & writeFile & appendFile & modifyFile
-    registry --> listDir & runCmd & search & webSearch
-    registry -->|"tool_result"| agent
+    agent -->|"executeTool()"| toolRegistry
+    toolRegistry --> readFile & writeFile & appendFile & modifyFile
+    toolRegistry --> listDir & runCmd & search & webSearch
+    toolRegistry -->|"tool_result"| agent
     agent -->|"no more tool_calls → end_turn"| index
     index --> User
 ```
@@ -157,6 +179,9 @@ The core pattern is a **ReAct loop** (Reason + Act). This runs in `agent.ts`:
 ```mermaid
 flowchart TD
     Start(["💬 User sends message"])
+    SlashCheck{{"Slash\ncommand?"}}
+    CmdRun["⌘ Execute command\n(/compact · /model · /role\n/undo · /tokens · …)"]
+    RetryPath["🔄 /retry — trim last\nassistant turn, re-enter loop"]
     CallAPI["⚙️ Call SAP AI Core\n— streaming response —"]
     Decision{{"stop_reason?"}}
     EndTurn(["✅ end_turn\nReturn response to user"])
@@ -165,7 +190,12 @@ flowchart TD
     StepCheck{{"Max steps\nreached?"}}
     Abort(["⛔ Abort\nMax steps exceeded"])
 
-    Start --> CallAPI
+    Start --> SlashCheck
+    SlashCheck -->|"yes"| CmdRun
+    SlashCheck -->|"no"| CallAPI
+    CmdRun -->|"retry action"| RetryPath
+    CmdRun -->|"continue / update / exit"| Start
+    RetryPath --> CallAPI
     CallAPI --> Decision
     Decision -->|"end_turn"| EndTurn
     Decision -->|"tool_use"| ToolUse
@@ -218,14 +248,16 @@ tools/index.ts
 
 | Module | Purpose |
 |---|---|
-| **`index.ts`** | CLI parsing (commander), setup wizard (@clack/prompts), REPL loop, REPL commands (/exit, /clear, /history, /status, /help, /raw) |
+| **`index.ts`** | CLI parsing, setup wizard, REPL loop. Passes extended `CommandContext` (with `callLLM`, `systemPrompt`) to commands; handles `retry` and `update` actions (recreates `OrchestrationClient` on model swap) |
 | **`agent.ts`** | The ReAct loop — calls SAP AI Core via OrchestrationClient, handles streaming, executes tools, feeds results back, loops until done or max steps |
 | **`gemini.ts`** | Thin wrapper around `@sap-ai-sdk/orchestration` — `OrchestrationClient` + `streamMessage()` |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional knowledge base |
-| **`memory.ts`** | Manages `MessageParam[]` in memory — `pushMessage()`, `getMessages()`, `clearMessages()`, `loadHistory()`, `saveHistory()` |
+| **`memory.ts`** | Manages `MessageParam[]` in memory — `pushMessage()`, `getMessages()`, `clearMessages()`, `loadHistory()`, `saveHistory()`, `trimToLastUserMessage()` |
 | **`config.ts`** | Loads `.env`, exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`), loads KB files |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
 | **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `actionLabel()`, `printToolHeader()`, `printDimOutput()`, etc. |
+| **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` callback), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
+| **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()` + `slashCompleter()` |
 | **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
 | **`tools/helpers.ts`** | Shared utility: `resolvePath()` (handles `~` expansion + `path.resolve`) |
 | **`tools/index.ts`** | Registry: imports all tools, builds lookup map, exports `getToolDefinitions()` + `executeTool()` |
@@ -353,14 +385,20 @@ pnpm dev -- --model gpt-5
 
 ### REPL Commands
 
-| Command | Action |
-|---|---|
-| `/exit` / `/quit` | Save history and exit |
-| `/clear` | Clear conversation history |
-| `/history` | Show conversation history |
-| `/status` | Show system info (OS, model, history count, etc.) |
-| `/help` | Show capabilities and example prompts |
-| `/raw` | Toggle raw JSON debug output |
+| Command | Alias | Action |
+|---|---|---|
+| `/compact` | — | Summarize + compress history to free up context |
+| `/model [name]` | `/m` | Switch LLM model mid-session (shows picker if no name given) |
+| `/role` | — | Switch knowledge base / persona without restarting |
+| `/undo` | — | Remove the last user + assistant exchange from history |
+| `/retry` | `/r` | Regenerate the last response (re-runs last user message) |
+| `/tokens` | — | Show estimated token usage for the current conversation |
+| `/status` | — | Show system info (OS, model, history count, etc.) |
+| `/history` | — | Show conversation history |
+| `/clear` | — | Clear conversation history |
+| `/raw` | — | Toggle raw JSON debug output |
+| `/help` | — | Show capabilities and example prompts |
+| `/exit` / `/quit` | — | Save history and exit |
 
 ---
 
@@ -422,6 +460,57 @@ const tools: ToolModule[] = [
 ```
 
 That's it. The registry auto-wires the definition (sent to Claude) and the executor (called when Claude uses it).
+
+---
+
+## Adding a New Command
+
+Slash commands are self-contained modules. Two steps:
+
+### Step 1: Create the command module
+
+Create `src/commands/myCmd.ts`:
+
+```typescript
+import chalk from 'chalk';
+import type { SlashCommand } from './types.js';
+
+export const command: SlashCommand = {
+  name: '/mycmd',
+  aliases: ['/mc'],            // optional
+  description: 'What this command does',
+  usage: '/mycmd [optional-arg]',
+  execute: async (ctx, args) => {
+    // ctx: { model, maxSteps, showRaw, kbFile, systemPrompt, yolo, callLLM }
+    // args: everything after the command name (e.g. "gpt-4o" from "/mycmd gpt-4o")
+
+    console.log(chalk.green(`  ✅ Running mycmd, current model: ${ctx.model}`));
+    console.log();
+
+    // Return one of:
+    //   { type: 'continue' }                           — nothing changes
+    //   { type: 'exit' }                               — quit the REPL
+    //   { type: 'retry' }                              — re-run last user message
+    //   { type: 'update', updates: { model: '...' } }  — mutate session state
+    return { type: 'continue' };
+  },
+};
+```
+
+### Step 2: Register it
+
+In `src/commands/index.ts`, add two lines:
+
+```typescript
+import { command as myCmdCmd } from './myCmd.js';  // ← add import
+
+const commands: SlashCommand[] = [
+  // ... existing commands ...
+  myCmdCmd,                                         // ← add to array
+];
+```
+
+Tab-completion, routing, and `/help` all pick it up automatically.
 
 ---
 

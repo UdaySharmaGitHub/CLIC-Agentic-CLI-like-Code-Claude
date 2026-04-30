@@ -46,6 +46,8 @@ User input (REPL or single-turn)
 | `src/config.ts` | Loads `.env`, exports constants (`DEFAULT_MODEL = 'gpt-4o'`, `DEFAULT_MAX_STEPS = 15`) |
 | `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()` + `executeTool()` |
+| `src/commands/index.ts` | Command registry — maps slash command name → module, exposes `executeCommand()` + `slashCompleter()` |
+| `src/commands/types.ts` | Shared types: `SlashCommand`, `CommandContext`, `CommandAction` |
 
 ### Tool system
 
@@ -56,6 +58,21 @@ Each tool is a self-contained module that exports:
 Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`.
 
 **To add a new tool:** create `src/tools/myTool.ts` with `definition` and `execute`, then import and add it to the `tools` array in `src/tools/index.ts`.
+
+### Command system
+
+Each slash command is a self-contained module that exports `command: SlashCommand` with:
+- `name` — the slash string (e.g. `/compact`), optional `aliases` (e.g. `['/r']`)
+- `description` / `usage` — shown in `/help`
+- `execute(ctx: CommandContext, args?: string) → Promise<CommandAction>`
+
+`CommandContext` carries: `model`, `maxSteps`, `showRaw`, `kbFile`, `systemPrompt`, `yolo`, and `callLLM` (a single-shot LLM callback used by `/compact`).
+
+`CommandAction` can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload). When `model` changes via `update`, `index.ts` automatically recreates the `OrchestrationClient`.
+
+Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`.
+
+**To add a new command:** create `src/commands/myCommand.ts` exporting `command: SlashCommand`, then import and add it to the `commands` array in `src/commands/index.ts`.
 
 ### Authentication
 
