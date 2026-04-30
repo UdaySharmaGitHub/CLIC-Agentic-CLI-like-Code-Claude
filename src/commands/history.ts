@@ -1,3 +1,10 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  CLIC — Command Line Intelligence Companion
+//
+//  History Command: Displays the conversation history with role indicators and content previews.
+//  Usage: /history
+// ─────────────────────────────────────────────────────────────────────────────
+
 import chalk from 'chalk';
 import { getMessages } from '../memory.js';
 import { printSeparator } from '../ui.js';

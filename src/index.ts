@@ -13,10 +13,10 @@ import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
 import { printBanner, printSeparator, promptPrintSeperator } from './ui.js';
 import { runAgentTurn } from './agent.js';
-import { createClient } from './gemini.js';
+import { createClient, streamMessage } from './gemini.js';
 import { buildSystemPrompt } from './prompts.js';
-import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, HISTORY_FILE, loadKnowledgeBase } from './config.js';
-import { getMessages, pushMessage, clearMessages, messageCount, loadHistory, saveHistory } from './memory.js';
+import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase } from './config.js';
+import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage } from './memory.js';
 import type { ConfirmFn } from './tools/index.js';
 import { fetchDeployedModelOptions } from './tools/listModelfromSapAiCore.js';
 // Commands
@@ -156,8 +156,9 @@ async function main(prompt: string | undefined, opts: {
   outro(chalk.green(' Setup complete '));
 
   // ── Build system prompt + client ──────────────────────────────────────────
-  const systemPrompt = buildSystemPrompt(knowledgeBase);
-  const client = createClient(model);
+  // Both are `let` so /model and /role can swap them mid-session.
+  let systemPrompt = buildSystemPrompt(knowledgeBase);
+  let client = createClient(model);
 
   // ── Load or initialise history ────────────────────────────────────────────
   await loadHistory();
@@ -201,7 +202,6 @@ async function main(prompt: string | undefined, opts: {
   }
 
   // ── REPL ──────────────────────────────────────────────────────────────────
-  let exiting = false;
 
   // CRITICAL: Keep the event loop alive with a timer. Readline closing during
   // Gemini streaming unrefs stdin, causing Node.js to exit. This timer ensures
@@ -211,14 +211,14 @@ async function main(prompt: string | undefined, opts: {
   // Create a fresh readline for each question — streaming can break a
   // long-lived readline instance, causing it to stop accepting input.
   // The completer fires when the user types Tab after a '/' prefix.
-  async function ask(prompt: string): Promise<string> {
+  async function ask(q: string): Promise<string> {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       completer: slashCompleter,
     });
     try {
-      return await rl.question(prompt);
+      return await rl.question(q);
     } finally {
       rl.close();
     }
@@ -231,9 +231,14 @@ async function main(prompt: string | undefined, opts: {
         return answer.trim().toLowerCase() === 'y';
       };
 
-  while (true) {
-    if (exiting) break;
+  // Single-shot LLM call injected into CommandContext (used by /compact)
+  const callLLM = async (messages: Parameters<typeof streamMessage>[2]): Promise<string> => {
+    let result = '';
+    await streamMessage(client, '', messages, (text) => { result += text; });
+    return result;
+  };
 
+  while (true) {
     let userInput: string;
     try {
       promptPrintSeperator();
@@ -252,15 +257,39 @@ async function main(prompt: string | undefined, opts: {
 
     // ── REPL commands ─────────────────────────────────────────────────────
     if (isSlashedCommand(trimmed)) {
-      const ctx: CommandContext = { model, maxSteps, showRaw, kbFile };
+      const ctx: CommandContext = { model, maxSteps, showRaw, kbFile, systemPrompt, yolo, callLLM };
       const result = await executeCommand(trimmed, ctx);
+
       if (result.type === 'exit') {
         clearInterval(keepAlive);
         break;
       }
+
       if (result.type === 'update') {
         if (result.updates.showRaw !== undefined) showRaw = result.updates.showRaw;
+        if (result.updates.kbFile !== undefined) kbFile = result.updates.kbFile;
+        if (result.updates.systemPrompt !== undefined) systemPrompt = result.updates.systemPrompt;
+        if (result.updates.model !== undefined && result.updates.model !== model) {
+          model = result.updates.model;
+          client = createClient(model);
+        }
       }
+
+      if (result.type === 'retry') {
+        // Drop everything after the last user message, then re-run the agent
+        trimToLastUserMessage();
+        try {
+          await runAgentTurn(client, getMessages(), systemPrompt, {
+            model, maxSteps, confirm: confirmFn, showRaw,
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(chalk.red(`  ❌ Error during retry: ${msg}`));
+        }
+        await saveHistory();
+        console.log();
+      }
+
       continue;
     }
 

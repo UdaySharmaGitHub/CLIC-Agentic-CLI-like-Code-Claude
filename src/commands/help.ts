@@ -1,3 +1,10 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  CLIC — Command Line Intelligence Companion
+//
+//  Help Command: Displays available commands and capabilities.
+//  Usage: /help
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { printHelp } from "../ui.js";
 import type { SlashCommand } from "./types.js";
 

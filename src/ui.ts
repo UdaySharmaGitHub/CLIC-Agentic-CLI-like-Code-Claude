@@ -135,7 +135,7 @@ export async function printBanner(): Promise<void> {
 
   // ── Hints ──
   console.log(`    ${chalk.dim('Type')} ${accent('/help')} ${chalk.dim('for commands,')} ${accent('/status')} ${chalk.dim('for system info, or just start chatting.')}`);
-  console.log(`    ${chalk.dim('Commands:')} ${chalk.dim('/exit · /clear · /history · /status · /help · /raw')}`);
+  console.log(`    ${chalk.dim('Commands:')} ${chalk.dim('/compact · /model · /role · /undo · /retry · /tokens · /clear · /history · /help')}`);
   console.log();
 }
 
@@ -175,12 +175,18 @@ export function printHelp(): void {
   console.log(boxDiv());
 
   const cmds: [string, string][] = [
-    ['/exit',    'Quit the agent'],
-    ['/clear',   'Clear chat history'],
-    ['/history', 'Show conversation history'],
-    ['/status',  'Show system info'],
-    ['/raw',     'Toggle raw JSON debug output'],
-    ['/help',    'Show this menu'],
+    ['/compact',  'Summarize & compress conversation history'],
+    ['/model',    'Switch model mid-session (/model [name])'],
+    ['/role',     'Switch knowledge base / persona'],
+    ['/undo',     'Remove last user + assistant exchange'],
+    ['/retry',    'Regenerate last response  (alias: /r)'],
+    ['/tokens',   'Show estimated token usage'],
+    ['/status',   'Show system info'],
+    ['/history',  'Show conversation history'],
+    ['/clear',    'Clear chat history'],
+    ['/raw',      'Toggle raw JSON debug output'],
+    ['/help',     'Show this menu'],
+    ['/exit',     'Quit the agent'],
   ];
 
   for (const [cmd, desc] of cmds) {

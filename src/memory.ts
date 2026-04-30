@@ -30,6 +30,10 @@ export function pushMessage(msg: ChatMessage): void {
   messages.push(msg);
 }
 
+export function popMessage(): ChatMessage | undefined {
+  return messages.pop();
+}
+
 export function clearMessages(): void {
   messages = [];
 }
@@ -54,5 +58,12 @@ export async function saveHistory(): Promise<void> {
     await fs.writeFile(HISTORY_FILE, JSON.stringify(messages, null, 2), 'utf-8');
   } catch {
     // Silently fail — history is not critical
+  }
+}
+
+/** Remove messages from the end until the last user message is at the tail (keeps it). */
+export function trimToLastUserMessage(): void {
+  while (messages.length > 0 && messages[messages.length - 1].role !== 'user') {
+    messages.pop();
   }
 }

@@ -1,3 +1,10 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  CLIC — Command Line Intelligence Companion
+//
+//  Status Command: Show current system status, including message count, model info, and context settings.
+//  Usage: /status
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { messageCount } from "../memory.js";
 import type { SlashCommand } from "./types.js";
 import { printStatus } from "../ui.js";

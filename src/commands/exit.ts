@@ -1,3 +1,11 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  CLIC — Command Line Intelligence Companion
+//
+//  Exit command: Saves the conversation history and exits the agent.
+//   Usage: /exit
+//          /quit
+// ─────────────────────────────────────────────────────────────────────────────
+
 import chalk from 'chalk';
 import { saveHistory } from "../memory.js"
 import { SlashCommand } from "./types.js";

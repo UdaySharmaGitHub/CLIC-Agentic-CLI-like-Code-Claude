@@ -1,3 +1,10 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  CLIC — Command Line Intelligence Companion
+//
+//  Raw Command: Toggles raw JSON debug output for API interactions, allowing users to see the exact request and response data for troubleshooting and insight.
+//  Usage: /raw
+// ─────────────────────────────────────────────────────────────────────────────
+
 import chalk from 'chalk';
 import type { SlashCommand } from './types.js';
 

@@ -14,40 +14,56 @@ import { command as historyCmd } from './history.js';
 import { command as statusCmd } from './status.js';
 import { command as helpCmd } from './help.js';
 import { command as rawCmd } from './raw.js';
+import { command as compactCmd } from './compact.js';
+import { command as modelCmd } from './model.js';
+import { command as undoCmd } from './undo.js';
+import { command as retryCmd } from './retry.js';
+import { command as tokensCmd } from './tokens.js';
+import { command as roleCmd } from './role.js';
 import { SlashCommand, CommandContext, CommandAction } from './types.js';
 
 // ── Registry array — add new commands here ───────────────────────────────────
-const commands:SlashCommand[]=[
-    exitCmd,
-    clearCmd,
-    historyCmd,
-    statusCmd,
-    helpCmd,
-    rawCmd,
+const commands: SlashCommand[] = [
+  exitCmd,
+  clearCmd,
+  historyCmd,
+  statusCmd,
+  helpCmd,
+  rawCmd,
+  compactCmd,
+  modelCmd,
+  undoCmd,
+  retryCmd,
+  tokensCmd,
+  roleCmd,
 ];
 
 // ── Build name → command lookup (including aliases) ──────────────────────────
 const commandMap = new Map<string, SlashCommand>();
 for (const cmd of commands) {
-    commandMap.set(cmd.name, cmd);
-    if (cmd.aliases) {
-        for (const alias of cmd.aliases) {
-            commandMap.set(alias, cmd);
-        }
+  commandMap.set(cmd.name, cmd);
+  if (cmd.aliases) {
+    for (const alias of cmd.aliases) {
+      commandMap.set(alias, cmd);
     }
+  }
 }
 
 // --- Public API --------------------------------------------------------------------
-/** Check if Input is a registered slash command */
+
+/** Check if input starts with a registered slash command name */
 export function isSlashedCommand(input: string): boolean {
-  return commandMap.has(input);
+  const name = input.split(' ')[0];
+  return commandMap.has(name);
 }
 
-/** Execute a slash command by name */
+/** Execute a slash command, parsing name and trailing args */
 export async function executeCommand(input: string, ctx: CommandContext): Promise<CommandAction> {
-  const cmd = commandMap.get(input);
+  const [name, ...rest] = input.split(' ');
+  const args = rest.join(' ').trim() || undefined;
+  const cmd = commandMap.get(name);
   if (!cmd) return { type: 'continue' };
-  return cmd.execute(ctx);
+  return cmd.execute(ctx, args);
 }
 
 /** Get all commands (for suggestion menu / help) */
