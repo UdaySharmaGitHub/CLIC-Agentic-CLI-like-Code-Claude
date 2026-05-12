@@ -60,12 +60,14 @@ export async function printBanner(): Promise<void> {
   console.log();
 
   const logo = [
-    '  ██████╗██╗     ██╗ ██████╗ ',
-    ' ██╔════╝██║     ██║██╔════╝ ',
-    ' ██║     ██║     ██║██║      ',
-    ' ██║     ██║     ██║██║      ',
-    ' ╚██████╗███████╗██║╚██████╗ ',
-    '  ╚═════╝╚══════╝╚═╝ ╚═════╝ ',
+    '  ██████╗ ██╗      ██╗  ██████╗ ',
+    ' ██╔════╝ ██║      ██║ ██╔════╝ ',
+    ' ██║      ██║      ██║ ██║      ',
+    ' ██║      ██║      ██║ ██║      ',
+    ' ██║      ██║      ██║ ██║      ',
+    ' ██║      ██║      ██║ ██║      ',
+    ' ╚██████╗ ███████╗ ██║ ╚██████╗ ',
+    '  ╚═════╝ ╚══════╝ ╚═╝  ╚═════╝ ',
   ];
 
   // ── Diagonal-gradient logo (centered) ──
@@ -75,7 +77,7 @@ export async function printBanner(): Promise<void> {
   const gradedLogo = logoGradient(logo);
   for (const line of gradedLogo) {
     console.log(`${logoPad}${line}`);
-    await delay(60);
+    await delay(80);
   }
 
   console.log();
@@ -92,8 +94,8 @@ export async function printBanner(): Promise<void> {
   // ── Info badges (centered) ──
   const sep  = chalk.dim(' · ');
   const info =
-    `${chalk.hex('#C084FC').bold('v4.2')}${sep}` +
-    `${chalk.dim('SAP AI Core')}${sep}` +
+    `${chalk.hex('#C084FC').bold('v4.3')}${sep}` +
+    `${chalk.dim('Anthropic & OpenAI & Google')}${sep}` +
     `${chalk.hex('#22D3EE')('Multi-Model Orchestration')}${sep}` +
     `${chalk.hex('#34D399').bold('● Ready')}`;
   const infoPad = ' '.repeat(Math.max(0, Math.floor((termWidth - visLen(info)) / 2)));

@@ -18,7 +18,7 @@ import { buildSystemPrompt } from './prompts.js';
 import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage } from './memory.js';
 import type { ConfirmFn } from './tools/index.js';
-import { fetchAvailableModelOptions } from './tools/listModelfromSapAiCore.js';
+import { fetchAvailableModelOptions } from './tools/listModelfromOpenAI.js';
 // Commands
 import { executeCommand, isSlashedCommand, slashCompleter, type CommandContext } from './commands/index.js';
 import ora from 'ora';

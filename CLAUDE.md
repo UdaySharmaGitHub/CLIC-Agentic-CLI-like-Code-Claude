@@ -19,7 +19,7 @@ No test runner is configured. TypeScript checking is implicit via `tsx` at runti
 
 ## Architecture
 
-CLIC is a Node.js CLI tool (ESM, TypeScript) built around a **ReAct agentic loop** powered by the **SAP AI SDK Orchestration Service** (`@sap-ai-sdk/orchestration`). Despite the naming, `gemini.ts` wraps the SAP SDK — it is not a Google Gemini client.
+CLIC is a Node.js CLI tool (ESM, TypeScript) built around a **ReAct agentic loop** powered by any **OpenAI-compatible API** via the `openai` npm package. `gemini.ts` is the LLM wrapper — the filename is historical; it now targets OpenAI-compatible endpoints.
 
 ### Request flow
 
@@ -27,7 +27,7 @@ CLIC is a Node.js CLI tool (ESM, TypeScript) built around a **ReAct agentic loop
 User input (REPL or single-turn)
   → memory.ts   (pushMessage → getMessages)
   → agent.ts    (runAgentTurn)
-    → gemini.ts (streamMessage via OrchestrationClient)
+    → gemini.ts (streamMessage via OpenAI client)
       ← LLM responds: text + optional tool_calls
     → tools/index.ts (executeTool dispatcher)
       → individual tool modules (readFile, writeFile, runCommand, …)
@@ -40,12 +40,14 @@ User input (REPL or single-turn)
 |---|---|
 | `src/index.ts` | Entry point: CLI parsing (`commander`), setup wizard (`@clack/prompts`), REPL loop |
 | `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached |
-| `src/gemini.ts` | SAP SDK `OrchestrationClient` wrapper; handles streaming + tool-call chunk assembly |
-| `src/memory.ts` | In-memory `ChatMessage[]` store + JSON persistence to `chat_history.json` |
+| `src/gemini.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks |
+| `src/memory.ts` | In-memory `ChatMessage[]` store (OpenAI message format) + JSON persistence to `chat_history.json` |
 | `src/prompts.ts` | Builds the system prompt, optionally injecting a knowledge base file |
 | `src/config.ts` | Loads `.env`, exports constants (`DEFAULT_MODEL = 'gpt-4o'`, `DEFAULT_MAX_STEPS = 15`) |
 | `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel |
+| `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()` + `executeTool()` |
+| `src/tools/listModelfromOpenAI.ts` | `list_models` tool + `fetchAvailableModelOptions()` startup helper |
 | `src/commands/index.ts` | Command registry — maps slash command name → module, exposes `executeCommand()` + `slashCompleter()` |
 | `src/commands/types.ts` | Shared types: `SlashCommand`, `CommandContext`, `CommandAction` |
 
@@ -55,7 +57,7 @@ Each tool is a self-contained module that exports:
 - `definition: ToolDefinition` — name, description, JSON Schema parameters (sent to LLM)
 - `execute(input, confirm)` — runs the action, calls `confirm()` before destructive ops
 
-Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`.
+Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`, `github`, `list_models`.
 
 **To add a new tool:** create `src/tools/myTool.ts` with `definition` and `execute`, then import and add it to the `tools` array in `src/tools/index.ts`.
 
@@ -68,7 +70,7 @@ Each slash command is a self-contained module that exports `command: SlashComman
 
 `CommandContext` carries: `model`, `maxSteps`, `showRaw`, `kbFile`, `systemPrompt`, `yolo`, and `callLLM` (a single-shot LLM callback used by `/compact`).
 
-`CommandAction` can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload). When `model` changes via `update`, `index.ts` automatically recreates the `OrchestrationClient`.
+`CommandAction` can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload). When `model` changes via `update`, `index.ts` recreates the OpenAI client.
 
 Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`.
 
@@ -76,7 +78,11 @@ Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retr
 
 ### Authentication
 
-Requires `AICORE_SERVICE_KEY` in the environment (JSON string from an SAP AI Core service instance). See `.env.example`. The setup wizard prompts for it if not set. The same key is used by both the main agent and the `web_search` tool.
+Requires `API_KEY` in the environment (your OpenAI or compatible API key). See `.env.example`. The setup wizard prompts for it if not set. Set `BASE_URL` to point at any OpenAI-compatible endpoint (defaults to `https://api.openai.com/v1`).
+
+### Model selection
+
+At startup, CLIC fetches the live model list from the configured API endpoint via `fetchAvailableModelOptions()` (in `src/tools/listModelfromOpenAI.ts`) and presents it as an interactive picker. Pass `--model <name>` to skip the picker. The `/model` command reloads the list mid-session.
 
 ### Role/Knowledge Base system
 

@@ -10,7 +10,7 @@
 import chalk from 'chalk';
 import { select, isCancel } from '@clack/prompts';
 import ora from 'ora';
-import { fetchAvailableModelOptions } from '../tools/listModelfromSapAiCore.js';
+import { fetchAvailableModelOptions } from '../tools/listModelfromOpenAI.js';
 import type { SlashCommand } from './types.js';
 
 export const command: SlashCommand = {

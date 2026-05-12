@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import chalk from 'chalk';
 import { HISTORY_FILE } from './config.js';
 
-// ── OpenAI-compatible message types (used by SAP AI SDK orchestration) ───────
+// ── OpenAI-compatible message types (HyperSpace AI) ───────
 
 export interface ToolCall {
   id: string;
