@@ -1,16 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  LLM — SAP Gen AI Hub (Orchestration Service) wrapper
+//  LLM — OpenAI-compatible API wrapper
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { OrchestrationClient } from '@sap-ai-sdk/orchestration';
-import type {
-  ChatCompletionTool,
-} from '@sap-ai-sdk/orchestration';
+import OpenAI from 'openai';
+import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { ChatMessage, ToolCall } from './memory.js';
 import { getToolDefinitions } from './tools/index.js';
 import type { ToolDefinition } from './tools/types.js';
 
-// ── Convert our ToolDefinition format to ChatCompletionTool format ───────────
+// ── Convert our ToolDefinition format to ChatCompletionTool ─────────────────
 
 function toChatCompletionTools(tools: ToolDefinition[]): ChatCompletionTool[] {
   return tools.map(t => ({
@@ -19,7 +17,7 @@ function toChatCompletionTools(tools: ToolDefinition[]): ChatCompletionTool[] {
       name: t.name,
       description: t.description,
       parameters: {
-        type: 'object',
+        type: 'object' as const,
         properties: Object.fromEntries(
           Object.entries(t.parameters.properties).map(([key, val]) => [key, {
             type: val.type,
@@ -32,22 +30,12 @@ function toChatCompletionTools(tools: ToolDefinition[]): ChatCompletionTool[] {
   }));
 }
 
-// ── Create an OrchestrationClient ────────────────────────────────────────────
+// ── Create an OpenAI client ──────────────────────────────────────────────────
 
-export function createClient(model: string): OrchestrationClient {
-  return new OrchestrationClient({
-    promptTemplating: {
-      model: {
-        name: model,
-        params: {
-          max_completion_tokens: 8192,
-          temperature: 0.3,
-        },
-      },
-      prompt: {
-        tools: toChatCompletionTools(getToolDefinitions()),
-      },
-    },
+export function createClient(_model: string): OpenAI {
+  return new OpenAI({
+    apiKey: process.env.API_KEY ?? '',
+    baseURL: process.env.BASE_URL?.trim() ?? 'https://api.openai.com/v1',
   });
 }
 
@@ -61,41 +49,42 @@ export interface LLMResponse {
 // ── Stream a message and return structured response ──────────────────────────
 
 export async function streamMessage(
-  client: OrchestrationClient,
+  client: OpenAI,
+  model: string,
   systemPrompt: string,
   messages: ChatMessage[],
   onText: (text: string) => void,
 ): Promise<LLMResponse> {
-  // Split: system prompt + history as messagesHistory, empty messages
-  // The system prompt is injected as the first message in history
-  const allMessages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-    ...messages,
+  const allMessages: ChatCompletionMessageParam[] = [
+    ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+    ...messages as ChatCompletionMessageParam[],
   ];
 
-  // Use the last message as `messages`, rest as `messagesHistory`
-  const lastMsg = allMessages[allMessages.length - 1];
-  const history = allMessages.slice(0, -1);
+  const tools = toChatCompletionTools(getToolDefinitions());
 
-  const streamResponse = await client.stream({
-    messages: [lastMsg as any],
-    messagesHistory: history as any[],
+  const stream = await client.chat.completions.create({
+    model,
+    messages: allMessages,
+    tools,
+    tool_choice: 'auto',
+    stream: true,
+    max_tokens: 8192,
+    temperature: 0.3,
   });
 
   let fullText = '';
   const toolCallChunksMap = new Map<number, { id: string; name: string; arguments: string }>();
 
-  for await (const chunk of streamResponse.stream) {
-    const deltaContent = chunk.getDeltaContent();
-    if (deltaContent) {
-      onText(deltaContent);
-      fullText += deltaContent;
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta;
+
+    if (delta?.content) {
+      onText(delta.content);
+      fullText += delta.content;
     }
 
-    // Accumulate tool call chunks
-    const deltaToolCalls = chunk.getDeltaToolCalls();
-    if (deltaToolCalls) {
-      for (const tc of deltaToolCalls) {
+    if (delta?.tool_calls) {
+      for (const tc of delta.tool_calls) {
         const existing = toolCallChunksMap.get(tc.index);
         if (existing) {
           if (tc.function?.arguments) existing.arguments += tc.function.arguments;
@@ -111,29 +100,14 @@ export async function streamMessage(
     }
   }
 
-  // Collect final tool calls — prefer aggregated stream data or fall back to response helper
-  let toolCalls: ToolCall[] = [];
-
-  const finalToolCalls = streamResponse.getToolCalls() as Array<{ id: string; type: string; function: { name: string; arguments: string } }> | undefined;
-  if (finalToolCalls && finalToolCalls.length > 0) {
-    toolCalls = finalToolCalls.map(tc => ({
-      id: tc.id,
-      type: 'function' as const,
-      function: {
-        name: tc.function.name,
-        arguments: tc.function.arguments,
-      },
-    }));
-  } else if (toolCallChunksMap.size > 0) {
-    toolCalls = Array.from(toolCallChunksMap.values()).map(tc => ({
-      id: tc.id,
-      type: 'function' as const,
-      function: {
-        name: tc.name,
-        arguments: tc.arguments,
-      },
-    }));
-  }
+  const toolCalls: ToolCall[] = Array.from(toolCallChunksMap.values()).map(tc => ({
+    id: tc.id,
+    type: 'function' as const,
+    function: {
+      name: tc.name,
+      arguments: tc.arguments,
+    },
+  }));
 
   return { text: fullText, toolCalls };
 }

@@ -1,12 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  Tool: web_search — search the web via SAP Gen AI Hub orchestration
-//
-//  Uses the same AICORE_SERVICE_KEY as the main agent.
-//  Sends a dedicated chat completion request with a search-oriented prompt.
+//  Tool: web_search — answer questions using OpenAI-compatible API
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
-import { OrchestrationClient } from '@sap-ai-sdk/orchestration';
+import OpenAI from 'openai';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printRejected, printDimOutput, printSeparator,
@@ -46,25 +43,15 @@ export async function execute(
   console.log(`  ${chalk.green('  🌐 Searching the web...')}`);
   console.log();
 
-  return searchWithOrchestration(input.query);
-}
-
-// ── SAP Gen AI Hub Web Search ────────────────────────────────────────────────
-
-async function searchWithOrchestration(query: string): Promise<ToolResult> {
   const model = process.env.CLIC_MODEL || 'gpt-4o';
+  const client = new OpenAI({
+    apiKey: process.env.API_KEY ?? '',
+    baseURL: process.env.BASE_URL?.trim() ?? 'https://api.openai.com/v1',
+  });
 
   try {
-    const client = new OrchestrationClient({
-      promptTemplating: {
-        model: {
-          name: model,
-          params: { max_completion_tokens: 4096, temperature: 0.2 },
-        },
-      },
-    });
-
-    const response = await client.chatCompletion({
+    const response = await client.chat.completions.create({
+      model,
       messages: [
         {
           role: 'system',
@@ -75,17 +62,18 @@ When asked a question:
 - If the topic involves people, companies, events, science, technology, news, sports, finance, geography, or culture — answer confidently.
 - Structure your response clearly: use bullet points, sections, or numbered lists where helpful.
 - If you know relevant figures, dates, names, or statistics, include them.
-- If the information may have changed recently (e.g. stock prices, breaking news), say so honestly — but still provide the best answer you can from your knowledge.
-- Never say "I cannot search the internet." You have extensive world knowledge — use it.`,
+- If the information may have changed recently (e.g. stock prices, breaking news), say so honestly — but still provide the best answer you can from your knowledge.`,
         },
         {
           role: 'user',
-          content: `Question: ${query}\n\nProvide a detailed, well-structured answer.`,
+          content: `Question: ${input.query}\n\nProvide a detailed, well-structured answer.`,
         },
       ],
+      max_tokens: 4096,
+      temperature: 0.2,
     });
 
-    const searchText = response.getContent()?.slice(0, 8000);
+    const searchText = response.choices[0]?.message?.content?.slice(0, 8000);
 
     if (!searchText) {
       printToolError('Web search returned no results.');
@@ -94,7 +82,6 @@ When asked a question:
     }
 
     const lines = searchText.split('\n');
-
     console.log(`  ${chalk.green('  ── Search Results ──────────────────────────────')}`);
     printDimOutput(lines, 60);
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────')}`);
@@ -103,7 +90,7 @@ When asked a question:
     printSeparator();
 
     return {
-      output: `[Web search results for '${query}']:\n${searchText}`,
+      output: `[Web search results for '${input.query}']:\n${searchText}`,
       isError: false,
     };
   } catch (err: unknown) {

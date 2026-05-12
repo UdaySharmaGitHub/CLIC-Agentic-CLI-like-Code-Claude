@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────────────────────
-//  CLIC — Command Line Intelligence Companion v4.2
+//  CLIC — Command Line Intelligence Companion v4.3
 //
 //  Entry point: CLI argument parsing, setup wizard, REPL loop
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ import { buildSystemPrompt } from './prompts.js';
 import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage } from './memory.js';
 import type { ConfirmFn } from './tools/index.js';
-import { fetchDeployedModelOptions } from './tools/listModelfromSapAiCore.js';
+import { fetchAvailableModelOptions } from './tools/listModelfromSapAiCore.js';
 // Commands
 import { executeCommand, isSlashedCommand, slashCompleter, type CommandContext } from './commands/index.js';
 import ora from 'ora';
@@ -31,8 +31,8 @@ let showRaw = false;
 
 const program = new Command()
   .name('clic')
-  .version('4.2.0')
-  .description('CLIC — Command Line Intelligence Companion. An agentic CLI powered by SAP Gen AI Hub.')
+  .version('4.3.0')
+  .description('CLIC — Command Line Intelligence Companion. An agentic CLI powered by OpenAI-compatible APIs.')
   .option('--kb <path>', 'Knowledge base file path for role/persona')
   .option('--model <model>', 'LLM model to use', DEFAULT_MODEL)
   .option('--max-steps <n>', 'Max agent steps per turn', String(DEFAULT_MAX_STEPS))
@@ -58,29 +58,33 @@ async function main(prompt: string | undefined, opts: {
   // ── Setup wizard with @clack/prompts ──────────────────────────────────────
   intro(chalk.cyan.bold(' CLIC Setup '));
 
-  // API Key / Service Key
-  let serviceKey = process.env.AICORE_SERVICE_KEY || '';
-  if (!serviceKey) {
+  // API Key check
+  let apiKey = process.env.API_KEY || '';
+  if (!apiKey) {
     const keyInput = await password({
-      message: 'SAP AI Core Service Key (JSON):',
-      validate: (val) => (val.length < 10 ? 'Please enter a valid service key JSON' : undefined),
+      message: 'OpenAI API Key:',
+      validate: (val) => (val.length < 5 ? 'Please enter a valid API key' : undefined),
     });
     if (isCancel(keyInput)) {
       console.log(chalk.red('  Cancelled.'));
       process.exit(0);
     }
-    serviceKey = keyInput;
-    process.env.AICORE_SERVICE_KEY = serviceKey;
+    apiKey = keyInput;
+    process.env.API_KEY = apiKey;
   } else {
-    console.log(chalk.green('  ✅ AICORE_SERVICE_KEY loaded from environment.'));
+    console.log(chalk.green('  ✅ API_KEY loaded from environment.'));
   }
 
-  // ── Model selection — fetch live deployments from SAP AI Core ─────────────
+  // Base URL check
+  const baseUrl = process.env.BASE_URL?.trim() || 'https://api.openai.com/v1';
+  console.log(chalk.green(`  ✅ Base URL: ${chalk.white(baseUrl)}`));
+
+  // ── Model selection — fetch live models from the API ──────────────────────
   // Skipped only when --model flag is explicitly passed (differs from default).
   if (opts.model === DEFAULT_MODEL) {
-    const spinner = ora({ text: chalk.dim('  Fetching available models from SAP AI Core...'), color: 'cyan' }).start();
+    const spinner = ora({ text: chalk.dim('  Fetching available models...'), color: 'cyan' }).start();
     try {
-      const modelOptions = await fetchDeployedModelOptions();
+      const modelOptions = await fetchAvailableModelOptions();
       spinner.stop();
 
       if (modelOptions.length > 0) {
@@ -96,7 +100,7 @@ async function main(prompt: string | undefined, opts: {
 
         model = modelChoice as string;
       } else {
-        console.log(chalk.yellow(`  ⚠️  No running deployments found. Using default: ${model}`));
+        console.log(chalk.yellow(`  ⚠️  No models found. Using default: ${model}`));
       }
     } catch (err) {
       spinner.stop();
@@ -106,6 +110,9 @@ async function main(prompt: string | undefined, opts: {
   } else {
     console.log(chalk.green(`  ✅ Model: ${chalk.white(model)} (set via --model flag)`));
   }
+
+  // Set CLIC_MODEL so tools (e.g. web_search) can pick it up
+  process.env.CLIC_MODEL = model;
 
   // Knowledge Base (optional)
   let knowledgeBase: string | undefined;
@@ -156,7 +163,6 @@ async function main(prompt: string | undefined, opts: {
   outro(chalk.green(' Setup complete '));
 
   // ── Build system prompt + client ──────────────────────────────────────────
-  // Both are `let` so /model and /role can swap them mid-session.
   let systemPrompt = buildSystemPrompt(knowledgeBase);
   let client = createClient(model);
 
@@ -179,7 +185,6 @@ async function main(prompt: string | undefined, opts: {
   console.log();
 
   // ── Create confirm function ───────────────────────────────────────────────
-  // For single-turn mode only (REPL uses its own below)
   const createSingleTurnConfirmFn = (singleRl: readline.Interface): ConfirmFn => {
     if (yolo) return async () => true;
     return async (message: string): Promise<boolean> => {
@@ -204,13 +209,9 @@ async function main(prompt: string | undefined, opts: {
   // ── REPL ──────────────────────────────────────────────────────────────────
 
   // CRITICAL: Keep the event loop alive with a timer. Readline closing during
-  // Gemini streaming unrefs stdin, causing Node.js to exit. This timer ensures
-  // the process stays alive until the user explicitly exits.
+  // streaming unrefs stdin, causing Node.js to exit.
   const keepAlive = setInterval(() => {}, 60_000);
 
-  // Create a fresh readline for each question — streaming can break a
-  // long-lived readline instance, causing it to stop accepting input.
-  // The completer fires when the user types Tab after a '/' prefix.
   async function ask(q: string): Promise<string> {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -232,9 +233,9 @@ async function main(prompt: string | undefined, opts: {
       };
 
   // Single-shot LLM call injected into CommandContext (used by /compact)
-  const callLLM = async (messages: Parameters<typeof streamMessage>[2]): Promise<string> => {
+  const callLLM = async (msgs: Parameters<typeof streamMessage>[3]): Promise<string> => {
     let result = '';
-    await streamMessage(client, '', messages, (text) => { result += text; });
+    await streamMessage(client, model, '', msgs, (text) => { result += text; });
     return result;
   };
 
@@ -245,7 +246,6 @@ async function main(prompt: string | undefined, opts: {
       userInput = await ask(`  ${chalk.cyan('❯')} `);
       promptPrintSeperator();
     } catch {
-      // Only break if stdin is truly destroyed (Ctrl+D)
       if (process.stdin.destroyed) {
         clearInterval(keepAlive);
         break;
@@ -271,12 +271,12 @@ async function main(prompt: string | undefined, opts: {
         if (result.updates.systemPrompt !== undefined) systemPrompt = result.updates.systemPrompt;
         if (result.updates.model !== undefined && result.updates.model !== model) {
           model = result.updates.model;
+          process.env.CLIC_MODEL = model;
           client = createClient(model);
         }
       }
 
       if (result.type === 'retry') {
-        // Drop everything after the last user message, then re-run the agent
         trimToLastUserMessage();
         try {
           await runAgentTurn(client, getMessages(), systemPrompt, {

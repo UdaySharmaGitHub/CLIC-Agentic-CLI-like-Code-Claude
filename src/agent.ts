@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  Agent — ReAct loop powered by SAP Gen AI Hub function calling
+//  Agent — ReAct loop powered by OpenAI function calling
 //
 //  How it works:
 //    1. User sends a message
@@ -7,14 +7,9 @@
 //    3. If tool_calls → execute each tool, send results back as tool messages
 //    4. LLM sees results and either calls more tools or gives final answer
 //    5. Loop continues until LLM stops calling functions
-//
-//  Key difference from the bash/Gemini version (setup.sh):
-//    - Uses SAP AI SDK orchestration with native function calling
-//    - No manual "done" flag needed — tool calling flow handles it
-//    - Streaming support for real-time text output
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { OrchestrationClient } from '@sap-ai-sdk/orchestration';
+import type OpenAI from 'openai';
 import chalk from 'chalk';
 import ora from 'ora';
 import { streamMessage } from './gemini.js';
@@ -33,7 +28,7 @@ export interface AgentOptions {
 // ── Agentic Loop ─────────────────────────────────────────────────────────────
 
 export async function runAgentTurn(
-  client: OrchestrationClient,
+  client: OpenAI,
   messages: ChatMessage[],
   systemPrompt: string,
   options: AgentOptions,
@@ -48,13 +43,13 @@ export async function runAgentTurn(
       console.log(chalk.cyan.bold(`  ┌─ Step ${steps} / ${options.maxSteps} ──────────────────────────────────┐`));
     }
 
-    // ── Call Gemini with streaming ───────────────────────────────────────────
+    // ── Call LLM with streaming ──────────────────────────────────────────────
     const spinner = ora({ text: '  Thinking...', indent: 2 }).start();
 
     let response;
     try {
       let textStarted = false;
-      response = await streamMessage(client, systemPrompt, messages, (text) => {
+      response = await streamMessage(client, options.model, systemPrompt, messages, (text) => {
         if (!textStarted) {
           spinner.stop();
           textStarted = true;
@@ -78,7 +73,7 @@ export async function runAgentTurn(
       return;
     }
 
-    // ── Debug: show raw response ──────────────────────────────────────────
+    // ── Debug: show raw response ─────────────────────────────────────────────
     if (options.showRaw) {
       console.log(chalk.dim('  ── Raw response ──────────────────────────'));
       console.log(JSON.stringify({ text: response.text, toolCalls: response.toolCalls }, null, 2));
@@ -86,7 +81,7 @@ export async function runAgentTurn(
       console.log(chalk.dim('  ──────────────────────────────────────────'));
     }
 
-    // ── Add assistant message to history ──────────────────────────────────
+    // ── Add assistant message to history ─────────────────────────────────────
     const assistantMsg: ChatMessage = {
       role: 'assistant',
       content: response.text || undefined,
@@ -94,13 +89,13 @@ export async function runAgentTurn(
     };
     messages.push(assistantMsg);
 
-    // ── If no tool calls, the task is complete ──────────────────────────
+    // ── If no tool calls, the task is complete ───────────────────────────────
     if (response.toolCalls.length === 0) {
       console.log(chalk.green(`  ✔ Task complete after ${steps} step(s).`));
       return;
     }
 
-    // ── Execute tool calls ────────────────────────────────────────────────
+    // ── Execute tool calls ───────────────────────────────────────────────────
     for (const call of response.toolCalls) {
       let args: Record<string, unknown>;
       try {

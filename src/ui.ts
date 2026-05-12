@@ -102,7 +102,7 @@ export async function printBanner(): Promise<void> {
 
   console.log();
   await typeLine(`    ${accentBold('CLIC')} ${chalk.dim('v4.2')} ${chalk.dim('·')} ${chalk.white('Command Line Intelligence Companion')}`, 10);
-  console.log(`    ${chalk.dim('Powered by SAP AI Core & Multi-Model Orchestration and Agentic Planning')}`);
+  console.log(`    ${chalk.dim('Powered by Hyperspace AI & Multi-Model Orchestration and Agentic Planning')}`);
   console.log();
 
   // ── Tools panel (animated row-by-row) ──

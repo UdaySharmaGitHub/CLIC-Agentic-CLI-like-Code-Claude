@@ -10,7 +10,7 @@
 import chalk from 'chalk';
 import { select, isCancel } from '@clack/prompts';
 import ora from 'ora';
-import { fetchDeployedModelOptions } from '../tools/listModelfromSapAiCore.js';
+import { fetchAvailableModelOptions } from '../tools/listModelfromSapAiCore.js';
 import type { SlashCommand } from './types.js';
 
 export const command: SlashCommand = {
@@ -30,7 +30,7 @@ export const command: SlashCommand = {
     let modelOptions: Array<{ value: string; label: string; hint: string }> = [];
 
     try {
-      modelOptions = await fetchDeployedModelOptions();
+      modelOptions = await fetchAvailableModelOptions();
       spinner.stop();
     } catch (err) {
       spinner.stop();

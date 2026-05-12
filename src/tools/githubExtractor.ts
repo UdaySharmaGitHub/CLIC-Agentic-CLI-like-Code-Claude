@@ -2,7 +2,6 @@
 //  Tool: github — profile + streak + public repos for any GitHub user
 // ─────────────────────────────────────────────────────────────────────────────
 
-import axios from 'axios';
 import chalk from 'chalk';
 import {
   printToolHeader, printToolSuccess, printToolError,
@@ -51,13 +50,21 @@ interface StreakStats {
   lastActiveDate: string;
 }
 
+// ── HTTP helper ──────────────────────────────────────────────────────────────
+
+async function ghFetch<T>(url: string): Promise<{ data: T; status: number }> {
+  const res = await fetch(url, {
+    headers: { Accept: 'application/vnd.github+json' },
+  });
+  const data = await res.json() as T;
+  return { data, status: res.status };
+}
+
 // ── Streak helper ────────────────────────────────────────────────────────────
 
 async function fetchStreak(username: string): Promise<StreakStats> {
-  const { data: events } = await axios.get<GitHubEvent[]>(
-    `https://api.github.com/users/${username}/events/public`,
-    { headers: { Accept: 'application/vnd.github+json' }, params: { per_page: 100 } },
-  );
+  const url = `https://api.github.com/users/${username}/events/public?per_page=100`;
+  const { data: events } = await ghFetch<GitHubEvent[]>(url);
 
   const pushDays = new Set<string>();
   for (const ev of events) {
@@ -68,16 +75,14 @@ async function fetchStreak(username: string): Promise<StreakStats> {
     return { currentStreak: 0, longestStreak: 0, totalActiveDays: 0, lastActiveDate: '—' };
   }
 
-  const days = [...pushDays].sort(); // ascending
+  const days = [...pushDays].sort();
 
-  // Longest streak in window
   let longest = 1, temp = 1;
   for (let i = 1; i < days.length; i++) {
     const diff = (new Date(days[i]).getTime() - new Date(days[i - 1]).getTime()) / 86_400_000;
     diff === 1 ? (temp++, longest = Math.max(longest, temp)) : (temp = 1);
   }
 
-  // Current streak — only live if active today or yesterday
   const today     = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const newest    = days[days.length - 1];
@@ -135,21 +140,23 @@ async function executeProfile(
 
   try {
     const [profileRes, streakRes] = await Promise.allSettled([
-      axios.get<GitHubProfile>(`https://api.github.com/users/${username}`, {
-        headers: { Accept: 'application/vnd.github+json' },
-      }),
+      ghFetch<GitHubProfile>(`https://api.github.com/users/${username}`),
       fetchStreak(username),
     ]);
 
     if (profileRes.status === 'rejected') {
-      const err  = profileRes.reason;
-      const code = axios.isAxiosError(err) ? err.response?.status : undefined;
-      const msg  = code === 404 ? `User '${username}' not found.` : err instanceof Error ? err.message : String(err);
+      const msg = profileRes.reason instanceof Error ? profileRes.reason.message : String(profileRes.reason);
       printToolError(msg); printSeparator();
       return { output: `ERROR — ${msg}`, isError: true };
     }
 
-    const p = profileRes.value.data;
+    const { data: p, status } = profileRes.value;
+    if (status === 404) {
+      const msg = `User '${username}' not found.`;
+      printToolError(msg); printSeparator();
+      return { output: `ERROR — ${msg}`, isError: true };
+    }
+
     const streak: StreakStats = streakRes.status === 'fulfilled'
       ? streakRes.value
       : { currentStreak: 0, longestStreak: 0, totalActiveDays: 0, lastActiveDate: '—' };
@@ -216,13 +223,14 @@ async function executeRepos(
   }
 
   try {
-    const { data: repos } = await axios.get<GitHubRepo[]>(
-      `https://api.github.com/users/${username}/repos`,
-      {
-        headers: { Accept: 'application/vnd.github+json' },
-        params: { sort: 'stars', direction: 'desc', per_page: limit },
-      },
-    );
+    const url = `https://api.github.com/users/${username}/repos?sort=stars&direction=desc&per_page=${limit}`;
+    const { data: repos, status } = await ghFetch<GitHubRepo[]>(url);
+
+    if (status === 404) {
+      const msg = `User '${username}' not found.`;
+      printToolError(msg); printSeparator();
+      return { output: `ERROR — ${msg}`, isError: true };
+    }
 
     const own = repos.filter(r => !r.fork);
     if (own.length === 0) {
@@ -256,8 +264,7 @@ async function executeRepos(
       isError: false,
     };
   } catch (err: unknown) {
-    const code = axios.isAxiosError(err) ? err.response?.status : undefined;
-    const msg  = code === 404 ? `User '${username}' not found.` : err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : String(err);
     printToolError(msg); printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
