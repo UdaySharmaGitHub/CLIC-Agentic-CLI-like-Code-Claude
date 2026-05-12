@@ -1,7 +1,7 @@
 {
   "name": "clic",
   "version": "4.2.0",
-  "description": "CLIC — Command Line Intelligence Companion. An agentic CLI powered by SAP Gen AI Hub.",
+  "description": "CLIC — Command Line Intelligence Companion. An agentic CLI Like CLAUDE CODE",
   "type": "module",
   "bin": {
     "clic": "./dist/index.js"

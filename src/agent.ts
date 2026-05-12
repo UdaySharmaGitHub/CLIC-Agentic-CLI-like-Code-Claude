@@ -15,6 +15,7 @@ import ora from 'ora';
 import { streamMessage } from './gemini.js';
 import { executeTool, type ConfirmFn } from './tools/index.js';
 import type { ChatMessage } from './memory.js';
+import { printStepHeader } from './ui.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,8 +40,7 @@ export async function runAgentTurn(
     steps++;
 
     if (steps > 1) {
-      console.log();
-      console.log(chalk.cyan.bold(`  ┌─ Step ${steps} / ${options.maxSteps} ──────────────────────────────────┐`));
+      printStepHeader(steps, options.maxSteps);
     }
 
     // ── Call LLM with streaming ──────────────────────────────────────────────

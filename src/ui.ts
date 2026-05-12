@@ -32,51 +32,25 @@ function boxLine(content: string, w = W): string {
   const pad = Math.max(0, w - visLen(content));
   return `  ${chalk.dim('│')} ${content}${' '.repeat(pad)} ${chalk.dim('│')}`;
 }
-function boxEmpty(w = W): string {
-  return boxLine('', w);
-}
-
 // ── Gradient palette ─────────────────────────────────────────────────────────
-
-const G = [
-  chalk.hex('#60E1F0'),
-  chalk.hex('#47C8E0'),
-  chalk.hex('#2FB0D0'),
-  chalk.hex('#1A98C0'),
-  chalk.hex('#0880B0'),
-  chalk.hex('#006AA0'),
-];
 
 const accent = chalk.hex('#60E1F0');
 const accentBold = chalk.hex('#60E1F0').bold;
-const purple = chalk.hex('#C084FC');
-const amber = chalk.hex('#F59E0B');
-const mint = chalk.hex('#34D399');
 
-// ── Animated line printer ────────────────────────────────────────────────────
+// Purple → cyan diagonal gradient applied to logo characters
+const LOGO_COLORS = ['#C084FC', '#A78BFA', '#818CF8', '#60A5FA', '#38BDF8', '#22D3EE'];
 
-async function typeLine(text: string, ms = 12): Promise<void> {
-  // eslint-disable-next-line no-control-regex
-  const parts = text.split(/(\x1b\[[0-9;]*m)/);
-  for (const part of parts) {
-    // ANSI escape sequences are printed instantly
-    if (/^\x1b\[/.test(part)) {
-      process.stdout.write(part);
-    } else {
-      for (const ch of part) {
-        process.stdout.write(ch);
-        await delay(ms);
-      }
-    }
-  }
-  process.stdout.write('\n');
-}
-
-async function animateLines(lines: string[], perLine = 35): Promise<void> {
-  for (const line of lines) {
-    console.log(line);
-    await delay(perLine);
-  }
+function logoGradient(lines: string[]): string[] {
+  const maxLen = Math.max(...lines.map((l) => l.length));
+  const maxDiag = (lines.length - 1) + (maxLen - 1);
+  return lines.map((line, row) =>
+    line.split('').map((ch, col) => {
+      if (ch === ' ') return ch;
+      const t = maxDiag === 0 ? 0 : (row + col) / maxDiag;
+      const idx = Math.min(Math.floor(t * LOGO_COLORS.length), LOGO_COLORS.length - 1);
+      return chalk.hex(LOGO_COLORS[idx]).bold(ch);
+    }).join('')
+  );
 }
 
 // ── Banner ───────────────────────────────────────────────────────────────────
@@ -86,56 +60,75 @@ export async function printBanner(): Promise<void> {
   console.log();
 
   const logo = [
-    '   ██████╗██╗     ██╗ ██████╗ ',
-    '  ██╔════╝██║     ██║██╔════╝ ',
-    '  ██║     ██║     ██║██║      ',
-    '  ██║     ██║     ██║██║      ',
-    '  ╚██████╗███████╗██║╚██████╗ ',
-    '   ╚═════╝╚══════╝╚═╝ ╚═════╝',
+    '  ██████╗██╗     ██╗ ██████╗ ',
+    ' ██╔════╝██║     ██║██╔════╝ ',
+    ' ██║     ██║     ██║██║      ',
+    ' ██║     ██║     ██║██║      ',
+    ' ╚██████╗███████╗██║╚██████╗ ',
+    '  ╚═════╝╚══════╝╚═╝ ╚═════╝ ',
   ];
 
-  // ── Animate logo lines with gradient ──
-  for (let i = 0; i < logo.length; i++) {
-    console.log(`    ${G[i].bold(logo[i])}`);
+  // ── Diagonal-gradient logo (centered) ──
+  const maxLogoLen = Math.max(...logo.map((l) => l.length));
+  const termWidth  = process.stdout.columns || 80;
+  const logoPad    = ' '.repeat(Math.max(0, Math.floor((termWidth - maxLogoLen) / 2)));
+  const gradedLogo = logoGradient(logo);
+  for (const line of gradedLogo) {
+    console.log(`${logoPad}${line}`);
     await delay(60);
   }
 
   console.log();
-  await typeLine(`    ${accentBold('CLIC')} ${chalk.dim('v4.2')} ${chalk.dim('·')} ${chalk.white('Command Line Intelligence Companion')}`, 10);
-  console.log(`    ${chalk.dim('Powered by Hyperspace AI & Multi-Model Orchestration and Agentic Planning')}`);
+
+  // ── Tagline (centered) ──
+  const divider = chalk.dim('─'.repeat(18));
+  const star    = chalk.hex('#C084FC')('✦');
+  const title   = chalk.bold.white('Command Line Intelligence Companion');
+  const tagline = `${divider} ${star} ${title} ${star} ${divider}`;
+  const taglinePad = ' '.repeat(Math.max(0, Math.floor((termWidth - visLen(tagline)) / 2)));
+  console.log(`${taglinePad}${tagline}`);
   console.log();
 
-  // ── Tools panel (animated row-by-row) ──
+  // ── Info badges (centered) ──
+  const sep  = chalk.dim(' · ');
+  const info =
+    `${chalk.hex('#C084FC').bold('v4.2')}${sep}` +
+    `${chalk.dim('SAP AI Core')}${sep}` +
+    `${chalk.hex('#22D3EE')('Multi-Model Orchestration')}${sep}` +
+    `${chalk.hex('#34D399').bold('● Ready')}`;
+  const infoPad = ' '.repeat(Math.max(0, Math.floor((termWidth - visLen(info)) / 2)));
+  console.log(`${infoPad}${info}`);
+  console.log();
+
+  // ── Compact 3-column tools panel ──
   console.log(boxTop());
-  console.log(boxLine(`${accentBold('⚡ Tools')}`));
+  console.log(boxLine(`${accentBold('⚡ Tools & Capabilities')}`));
   console.log(boxDiv());
 
-  const tools: [string, string, string][] = [
-    ['💬', 'chat',       'Conversational Q&A on any topic'],
-    ['⚙️',  'command',    'Execute shell commands with approval'],
-    ['📖', 'read',       'Read and analyze file contents'],
-    ['✏️',  'write',      'Create or overwrite files'],
-    ['➕', 'append',     'Append content to existing files'],
-    ['🔧', 'modify',     'Find-and-replace within files'],
-    ['📂', 'list',       'Browse directory contents'],
-    ['🔍', 'search',     'Glob-based file search'],
-    ['🌐', 'web',        'Search and scrape from the web'],
-    ['🔗', 'agentic',    'Auto-chain: plan → act → verify'],
-    ['📚', 'knowledge',  'Load role/behavior from a file'],
+  const tools: [string, string][] = [
+    ['💬', 'chat'],      ['⚙️ ', 'command'],   ['📖', 'read'],
+    ['✏️ ', 'write'],    ['➕',  'append'],     ['🔧', 'modify'],
+    ['📂', 'list'],      ['🔍', 'search'],      ['🌐', 'web'],
+    ['🔗', 'agentic'],   ['📚', 'knowledge'],
   ];
 
-  for (const [icon, name, desc] of tools) {
-    const label = accent(name.padEnd(13));
-    console.log(boxLine(`  ${icon} ${label}${chalk.dim(desc)}`));
-    await delay(30);
+  const NAME_W = 10;
+  for (let i = 0; i < tools.length; i += 3) {
+    const row = tools.slice(i, i + 3) as [string, string][];
+    const cells = row.map(([icon, name]) =>
+      `${icon} ${accent(name)}${' '.repeat(Math.max(0, NAME_W - name.trim().length))}`,
+    );
+    while (cells.length < 3) cells.push(' '.repeat(NAME_W + 3));
+    console.log(boxLine(`  ${cells.join('  ')}`));
+    await delay(25);
   }
 
   console.log(boxBottom());
   console.log();
 
   // ── Hints ──
-  console.log(`    ${chalk.dim('Type')} ${accent('/help')} ${chalk.dim('for commands,')} ${accent('/status')} ${chalk.dim('for system info, or just start chatting.')}`);
-  console.log(`    ${chalk.dim('Commands:')} ${chalk.dim('/compact · /model · /role · /undo · /retry · /tokens · /clear · /history · /help')}`);
+  console.log(`    ${chalk.dim('▸ Type')} ${accent('/help')} ${chalk.dim('for commands,')} ${accent('/status')} ${chalk.dim('for system info, or just start chatting.')}`);
+  console.log(`    ${chalk.dim('▸ /compact · /model · /role · /undo · /retry · /tokens · /clear · /exit')}`);
   console.log();
 }
 
@@ -242,6 +235,15 @@ export function printStatus(opts: {
 
   console.log(boxBottom());
   console.log();
+}
+
+// ── Step header ──────────────────────────────────────────────────────────────
+
+export function printStepHeader(step: number, maxSteps: number): void {
+  console.log();
+  const badge = chalk.bgHex('#0d2137').hex('#60E1F0').bold(` ⟳ Step ${step} / ${maxSteps} `);
+  const trail = chalk.dim('─'.repeat(W - 10));
+  console.log(`  ${badge}  ${trail}`);
 }
 
 // ── Action labels ────────────────────────────────────────────────────────────
