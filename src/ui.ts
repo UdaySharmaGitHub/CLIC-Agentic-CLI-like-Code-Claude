@@ -139,67 +139,98 @@ export async function printBanner(): Promise<void> {
 export function printHelp(): void {
   console.log();
 
-  console.log(boxTop());
-  console.log(boxLine(`${accentBold('🧠 Capabilities')}`));
-  console.log(boxDiv());
+  // ── 2-column layout constants ──────────────────────────────────────
+  // W2=73: inner width of the merged box.
+  // LW=34: visible width of the left column (before the │ divider).
+  // The │ divider lands at terminal column 39, so ┬/┼/┴ sit at offset 36
+  // from the first dash of the top/divider/bottom borders.
+  const W2 = 73;
+  const LW = 34;
 
-  const caps: [string, string, string][] = [
-    ['💬', 'Chat / Q&A',     'Any topic — code, math, devops, science'],
-    ['⚙️',  'Run Commands',   'Safe shell commands with approval'],
-    ['📖', 'Read Files',     'Read and analyze file contents'],
-    ['✏️',  'Write Files',    'Create or overwrite files'],
-    ['➕', 'Append Files',   'Add content to existing files'],
-    ['🔧', 'Modify Files',   'Find-and-replace text in files'],
-    ['📂', 'List Dirs',      'Browse directory listings'],
-    ['🔍', 'Search Files',   'Glob-based file search'],
-    ['🌐', 'Web Search',     'Search and scrape from the web'],
-    ['🔗', 'Agentic Loop',   'Auto-chains steps until task done'],
-    ['📚', 'Knowledge Base', 'Role/behavior loaded from file'],
+  const box2Top    = () => chalk.dim(`  ╭${'─'.repeat(36)}┬${'─'.repeat(38)}╮`);
+  const box2Div    = () => chalk.dim(`  ├${'─'.repeat(36)}┼${'─'.repeat(38)}┤`);
+  const box2Bottom = () => chalk.dim(`  ╰${'─'.repeat(36)}┴${'─'.repeat(38)}╯`);
+
+  const splitRow = (left: string, right: string): string => {
+    const lpad = ' '.repeat(Math.max(0, LW - visLen(left)));
+    return boxLine(`${left}${lpad}${chalk.dim(' │ ')}${right}`, W2);
+  };
+
+  const capCat  = (lbl: string) => `  ${chalk.hex('#818CF8')('┄')}  ${chalk.hex('#A78BFA').bold(lbl)}`;
+  const capItem = (icon: string, name: string) => `  ${icon} ${chalk.white(name)}`;
+  const cmdCat  = (lbl: string) => `  ${chalk.hex('#F59E0B')('┄')}  ${chalk.hex('#FCD34D').bold(lbl)}`;
+  const cmdItem = (cmd: string, desc: string) => `  ${accent(cmd.padEnd(10))}${chalk.dim(desc)}`;
+
+  // Left column — Capabilities (17 rows)
+  const L: string[] = [
+    capCat('Conversation'),
+    capItem('💬', 'Chat / Q&A'),
+    capItem('🔗', 'Agentic Loop'),
+    capItem('📚', 'Knowledge Base'),
+    '',
+    capCat('Files & Filesystem'),
+    capItem('📖', 'Read'),
+    capItem('✏️',  'Write'),
+    capItem('➕', 'Append'),
+    capItem('🔧', 'Modify'),
+    capItem('📂', 'List Dirs'),
+    '',
+    capCat('External'),
+    capItem('⚙️',  'Run Commands'),
+    capItem('🔍', 'Search'),
+    capItem('🌐', 'Web Search'),
+    '',
   ];
 
-  for (const [icon, name, desc] of caps) {
-    const lbl = chalk.white(name.padEnd(17));
-    console.log(boxLine(`  ${icon} ${lbl}${chalk.dim(desc)}`));
-  }
-
-  console.log(boxBottom());
-  console.log();
-
-  console.log(boxTop());
-  console.log(boxLine(`${chalk.yellow.bold('⌘  Commands')}`));
-  console.log(boxDiv());
-
-  const cmds: [string, string][] = [
-    ['/compact',  'Summarize & compress conversation history'],
-    ['/model',    'Switch model mid-session (/model [name])'],
-    ['/role',     'Switch knowledge base / persona'],
-    ['/undo',     'Remove last user + assistant exchange'],
-    ['/retry',    'Regenerate last response  (alias: /r)'],
-    ['/tokens',   'Show estimated token usage'],
-    ['/status',   'Show system info'],
-    ['/history',  'Show conversation history'],
-    ['/clear',    'Clear chat history'],
-    ['/raw',      'Toggle raw JSON debug output'],
-    ['/help',     'Show this menu'],
-    ['/exit',     'Quit the agent'],
+  // Right column — Commands (17 rows)
+  const R: string[] = [
+    cmdCat('Session'),
+    cmdItem('/compact',  'Summarize history'),
+    cmdItem('/clear',    'Clear chat'),
+    cmdItem('/undo',     'Remove last exchange'),
+    cmdItem('/retry',    'Regenerate  /r'),
+    cmdItem('/exit',     'Quit'),
+    '',
+    cmdCat('Configuration'),
+    cmdItem('/model',    'Switch model'),
+    cmdItem('/role',     'Switch persona'),
+    '',
+    cmdCat('Information'),
+    cmdItem('/tokens',   'Token usage'),
+    cmdItem('/status',   'System info'),
+    cmdItem('/history',  'Show history'),
+    cmdItem('/raw',      'Debug output'),
+    cmdItem('/help',     'Show this menu'),
   ];
 
-  for (const [cmd, desc] of cmds) {
-    const lbl = accent(cmd.padEnd(12));
-    console.log(boxLine(`  ${lbl}${chalk.dim(desc)}`));
+  // ── Render combined box ───────────────────────────────────────────
+  console.log(box2Top());
+  console.log(splitRow(accentBold('🧠 Capabilities'), chalk.yellow.bold('⌘  Commands')));
+  console.log(box2Div());
+
+  const maxLen = Math.max(L.length, R.length);
+  for (let i = 0; i < maxLen; i++) {
+    console.log(splitRow(L[i] ?? '', R[i] ?? ''));
   }
 
-  console.log(boxBottom());
+  console.log(box2Bottom());
   console.log();
 
+  // ── Prompt Ideas ──────────────────────────────────────────────────
+  const ideas: [string, string][] = [
+    ['①', 'what is the difference between TCP and UDP?'],
+    ['②', 'list all python files in current directory'],
+    ['③', 'create a test.py with a bug then fix it'],
+    ['④', 'read config.json and update the port to 9000'],
+    ['⑤', 'create a hello.sh, make it executable, run it'],
+  ];
+
   console.log(boxTop());
-  console.log(boxLine(`${accentBold('💡 Try these')}`));
+  console.log(boxLine(`${accentBold('💡 Prompt Ideas')}`));
   console.log(boxDiv());
-  console.log(boxLine(chalk.dim('  "what is the difference between TCP and UDP?"')));
-  console.log(boxLine(chalk.dim('  "list all python files in current directory"')));
-  console.log(boxLine(chalk.dim('  "create a test.py with a bug then fix it"')));
-  console.log(boxLine(chalk.dim('  "read config.json and update the port to 9000"')));
-  console.log(boxLine(chalk.dim('  "create a hello.sh, make it executable, run it"')));
+  for (const [num, idea] of ideas) {
+    console.log(boxLine(`  ${accent(num)}  ${chalk.dim(`"${idea}"`)}`));
+  }
   console.log(boxBottom());
   console.log();
 }

@@ -13,7 +13,7 @@ import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
 import { printBanner, printSeparator, promptPrintSeperator } from './ui.js';
 import { runAgentTurn } from './agent.js';
-import { createClient, streamMessage } from './gemini.js';
+import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
 import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage } from './memory.js';

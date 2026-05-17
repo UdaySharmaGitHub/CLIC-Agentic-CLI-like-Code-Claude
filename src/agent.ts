@@ -12,7 +12,7 @@
 import type OpenAI from 'openai';
 import chalk from 'chalk';
 import ora from 'ora';
-import { streamMessage } from './gemini.js';
+import { streamMessage } from './openai.js';
 import { executeTool, type ConfirmFn } from './tools/index.js';
 import type { ChatMessage } from './memory.js';
 import { printStepHeader } from './ui.js';
