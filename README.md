@@ -79,8 +79,9 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 clic/
 ├── src/
 │   ├── index.ts              ← CLI entry point + REPL loop
-│   ├── agent.ts              ← ReAct agentic loop (runAgentTurn)
-│   ├── gemini.ts             ← OpenAI SDK wrapper (createClient / streamMessage)
+│   ├── agent.ts              ← ReAct agentic loop (runAgentTurn) + KG recording
+│   ├── openai.ts             ← OpenAI SDK wrapper (createClient / streamMessage / TokenUsage)
+│   ├── knowledgeGraph.ts     ← Token-tracking Knowledge Graph (persisted to token_graph.json)
 │   ├── prompts.ts            ← System prompt builder (buildSystemPrompt)
 │   ├── memory.ts             ← Chat history management (load/save/push/clear/trim)
 │   ├── safety.ts             ← Blocked commands + protected paths
@@ -94,7 +95,7 @@ clic/
 │   │   ├── role.ts           ← /role   — switch KB/persona mid-session
 │   │   ├── undo.ts           ← /undo   — remove last exchange
 │   │   ├── retry.ts          ← /retry  — regenerate last response
-│   │   ├── tokens.ts         ← /tokens — estimate token usage
+│   │   ├── tokens.ts         ← /tokens — actual token counts from Knowledge Graph
 │   │   ├── status.ts         ← /status — show system info
 │   │   ├── history.ts        ← /history — show conversation history
 │   │   ├── clear.ts          ← /clear  — clear history
@@ -122,7 +123,8 @@ clic/
 ├── package.json
 ├── tsconfig.json
 ├── setup.sh                  ← Original bash version (v4.1)
-└── chat_history.json         ← Persisted conversation (auto-generated)
+├── chat_history.json         ← Persisted conversation (auto-generated, gitignored)
+└── token_graph.json          ← Token usage Knowledge Graph (auto-generated, gitignored)
 ```
 
 ---
@@ -137,7 +139,8 @@ flowchart TD
     index["index.ts\nCLI + REPL"]
     memory["memory.ts\nChat History"]
     agent["agent.ts\nReAct Loop"]
-    gemini["gemini.ts\nOpenAI-compatible API"]
+    llm["openai.ts\nOpenAI-compatible API"]
+    kg["knowledgeGraph.ts\nToken KG"]
     cmdRegistry["commands/index.ts\nCommand Registry"]
     toolRegistry["tools/index.ts\nTool Registry"]
 
@@ -160,15 +163,32 @@ flowchart TD
     compact -->|"update / retry / exit"| index
     index --> memory
     memory --> agent
-    agent -->|"streamMessage()"| gemini
-    gemini -->|"text + tool_calls (streaming)"| agent
+    agent -->|"streamMessage()"| llm
+    llm -->|"text + tool_calls + TokenUsage"| agent
     agent -->|"executeTool()"| toolRegistry
     toolRegistry --> readFile & writeFile & appendFile & modifyFile
     toolRegistry --> listDir & runCmd & search & webSearch
     toolRegistry --> github & listModels
     toolRegistry -->|"tool_result"| agent
+    agent -->|"record turn"| kg
     agent -->|"no more tool_calls → end_turn"| index
     index --> User
+
+    classDef user      fill:#7C3AED,stroke:#5B21B6,color:#fff,font-weight:bold
+    classDef core      fill:#1D4ED8,stroke:#1E40AF,color:#fff
+    classDef llmNode   fill:#0D9488,stroke:#0F766E,color:#fff,font-weight:bold
+    classDef kgNode    fill:#D97706,stroke:#B45309,color:#fff,font-weight:bold
+    classDef cmdNode   fill:#7E22CE,stroke:#6B21A8,color:#fff
+    classDef registry  fill:#0369A1,stroke:#075985,color:#fff,font-weight:bold
+    classDef toolItem  fill:#059669,stroke:#047857,color:#fff
+
+    class User user
+    class index,memory,agent core
+    class llm llmNode
+    class kg kgNode
+    class cmdRegistry,compact cmdNode
+    class toolRegistry registry
+    class readFile,writeFile,appendFile,modifyFile,listDir,runCmd,search,webSearch,github,listModels toolItem
 ```
 
 ### ReAct Agent Loop
@@ -181,10 +201,10 @@ flowchart TD
     SlashCheck{{"Slash\ncommand?"}}
     CmdRun["⌘ Execute command\n(/compact · /model · /role\n/undo · /tokens · …)"]
     RetryPath["🔄 /retry — trim last\nassistant turn, re-enter loop"]
-    CallAPI["⚙️ Call SAP AI Core\n— streaming response —"]
-    Decision{{"stop_reason?"}}
-    EndTurn(["✅ end_turn\nReturn response to user"])
-    ToolUse["🔧 tool_use\nExecute tool(s)\nwith user approval"]
+    CallAPI["⚙️ Call OpenAI-compatible API\n— streaming response —"]
+    Decision{{"tool_calls?"}}
+    EndTurn(["✅ end_turn\nRecord turn in KG\nReturn response to user"])
+    ToolUse["🔧 Execute tool(s)\nwith user approval"]
     SaveResult["📩 Push tool_result\nback into context"]
     StepCheck{{"Max steps\nreached?"}}
     Abort(["⛔ Abort\nMax steps exceeded"])
@@ -196,12 +216,29 @@ flowchart TD
     CmdRun -->|"continue / update / exit"| Start
     RetryPath --> CallAPI
     CallAPI --> Decision
-    Decision -->|"end_turn"| EndTurn
-    Decision -->|"tool_use"| ToolUse
+    Decision -->|"no"| EndTurn
+    Decision -->|"yes"| ToolUse
     ToolUse --> SaveResult
     SaveResult --> StepCheck
     StepCheck -->|"No"| CallAPI
     StepCheck -->|"Yes"| Abort
+
+    classDef startEnd  fill:#7C3AED,stroke:#5B21B6,color:#fff,font-weight:bold
+    classDef decision  fill:#D97706,stroke:#B45309,color:#fff,font-weight:bold
+    classDef command   fill:#7E22CE,stroke:#6B21A8,color:#fff
+    classDef apiCall   fill:#0D9488,stroke:#0F766E,color:#fff,font-weight:bold
+    classDef toolExec  fill:#059669,stroke:#047857,color:#fff
+    classDef success   fill:#1D4ED8,stroke:#1E40AF,color:#fff,font-weight:bold
+    classDef abort     fill:#DC2626,stroke:#B91C1C,color:#fff,font-weight:bold
+    classDef neutral   fill:#374151,stroke:#1F2937,color:#fff
+
+    class Start,EndTurn startEnd
+    class SlashCheck,Decision,StepCheck decision
+    class CmdRun,RetryPath command
+    class CallAPI apiCall
+    class ToolUse,SaveResult toolExec
+    class EndTurn success
+    class Abort abort
 ```
 
 **Key design**: The `openai` SDK's native streaming + function calling handles structured tool calls — no manual JSON parsing or `done` flag needed. The absence of further function calls naturally signals when the agent is finished.
@@ -262,15 +299,16 @@ Registered tools:
 
 | Module | Purpose |
 |---|---|
-| **`index.ts`** | CLI parsing, setup wizard, live model picker, REPL loop. Passes extended `CommandContext` (with `callLLM`, `systemPrompt`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
-| **`agent.ts`** | The ReAct loop — calls the API via the OpenAI client, handles streaming, executes tools, feeds results back, loops until done or max steps |
-| **`gemini.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly |
+| **`index.ts`** | CLI parsing, setup wizard, live model picker, REPL loop. Passes extended `CommandContext` (with `callLLM`, `systemPrompt`, `sessionId`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
+| **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming, executes tools, feeds results back, loops until done or max steps. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
+| **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
+| **`knowledgeGraph.ts`** | In-memory graph with `addNode()` / `addEdge()` / query helpers (`getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`). Persisted to `token_graph.json` |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional knowledge base |
 | **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `pushMessage()`, `getMessages()`, `clearMessages()`, `loadHistory()`, `saveHistory()`, `trimToLastUserMessage()` |
-| **`config.ts`** | Loads `.env`, exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`), loads KB files |
+| **`config.ts`** | Loads `.env`, exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`), loads KB files |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
 | **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `actionLabel()`, `printToolHeader()`, `printDimOutput()`, etc. |
-| **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` callback), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
+| **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
 | **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()` + `slashCompleter()` |
 | **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
 | **`tools/helpers.ts`** | Shared utility: `resolvePath()` (handles `~` expansion + `path.resolve`) |
@@ -412,7 +450,7 @@ pnpm dev -- --model gemini-2.5-pro
 | `/role` | — | Switch knowledge base / persona without restarting |
 | `/undo` | — | Remove the last user + assistant exchange from history |
 | `/retry` | `/r` | Regenerate the last response (re-runs last user message) |
-| `/tokens` | — | Show estimated token usage for the current conversation |
+| `/tokens` | — | Show actual token usage (from Knowledge Graph) + context size estimate |
 | `/status` | — | Show system info (OS, model, history count, etc.) |
 | `/history` | — | Show conversation history |
 | `/clear` | — | Clear conversation history |
@@ -559,11 +597,11 @@ When troubleshooting, check logs first, then configs.
 
 ## Persistent Agent Memory
 
-CLIC maintains a **persistent, session-spanning memory** — built entirely from scratch with no third-party memory or vector-store library.
+CLIC maintains two independent persistence stores — both built without any third-party memory or vector-store library.
 
-### How it works
+### Chat History (`chat_history.json`)
 
-Every conversation turn (user message + assistant response + tool calls/results) is serialised and saved to `chat_history.json` as a flat array of **OpenAI-compatible messages**. On the next session, the agent loads this array and injects it into the context window before processing your first message — so it already knows what you worked on, what decisions were made, and what files were touched.
+Every conversation turn (user message + assistant response + tool calls/results) is serialised and saved as a flat array of **OpenAI-compatible messages**. On the next session, the agent loads this array and injects it into the context window before processing your first message.
 
 ```
 chat_history.json  ←  OpenAI ChatMessage[]
@@ -575,15 +613,30 @@ chat_history.json  ←  OpenAI ChatMessage[]
 ]
 ```
 
+### Token Knowledge Graph (`token_graph.json`)
+
+After every agent turn, CLIC writes a structured graph of what happened — which model was used, which tools were called, and how many tokens were consumed. This powers the `/tokens` command with accurate per-session and all-time totals.
+
+```
+token_graph.json  ←  Knowledge Graph
+Session -[HAS_TURN]->   Turn
+Turn    -[USED_MODEL]-> Model
+Turn    -[CALLED_TOOL]-> Tool
+Turn    -[HAS_USAGE]->  TokenUsage  { promptTokens, completionTokens, source: "actual"|"estimated" }
+```
+
+Token counts come directly from `stream_options: { include_usage: true }` in the API response. If the API omits usage (some providers), CLIC estimates at ~4 chars/token and marks the record as `estimated`.
+
 ### Key properties
 
 | Property | Detail |
 |---|---|
 | **Zero dependencies** | Pure Node.js `fs` + `JSON` — no LangChain, no vector DB, no external memory service |
-| **Survives restarts** | History written to disk after every turn and on `/exit` |
+| **Survives restarts** | Both files written to disk after every turn and on `/exit` |
 | **Full context replay** | Entire message array injected back into the context window on startup |
-| **Selective clear** | Use `/clear` in the REPL to wipe memory and start a fresh session |
-| **Configurable path** | Override the default file via `AGENT_HISTORY_FILE` env var |
+| **Accurate token tracking** | Actual API usage when available; estimated fallback otherwise |
+| **Selective clear** | Use `/clear` in the REPL to wipe chat history (token graph is preserved) |
+| **Configurable paths** | `AGENT_HISTORY_FILE` and `AGENT_TOKEN_GRAPH_FILE` env vars |
 
 ### Result
 
@@ -591,7 +644,7 @@ The agent remembers previous tasks, code it wrote, commands it ran, and conclusi
 
 ```
 Session 1:  "Create a FastAPI server in server.py"
-            → agent writes server.py, saves memory
+            → agent writes server.py, saves memory + token graph
 
 Session 2:  "Add authentication to the server"
             → agent already knows server.py exists and what's in it
@@ -638,6 +691,7 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 | `BRAVE_API_KEY` | No | Brave Search API key (for `web_search` tool) |
 | `TAVILY_API_KEY` | No | Tavily API key (alternative to Brave for `web_search`) |
 | `AGENT_HISTORY_FILE` | No | Custom path for chat history (default: `chat_history.json`) |
+| `AGENT_TOKEN_GRAPH_FILE` | No | Custom path for token Knowledge Graph (default: `token_graph.json`) |
 
 ---
 
@@ -651,7 +705,8 @@ CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini, then m
 | `jq` + `curl` for API calls | `@sap-ai-sdk/orchestration` | `openai` npm package |
 | Hardcoded Gemini endpoint | SAP AI Core Orchestration | Any OpenAI-compatible endpoint |
 | `eval` for shell commands | `execa` with timeout | `execa` with timeout |
-| Monolithic single file | 18-file modular architecture | 20-file modular architecture + 2 new tools |
+| No token tracking | No token tracking | Knowledge Graph — actual token counts per session |
+| Monolithic single file | 18-file modular architecture | 22-file modular architecture + KG + 2 new tools |
 | Google Search grounding | Brave / Tavily web search | Brave / Tavily + GitHub + list_models |
 
 ---
