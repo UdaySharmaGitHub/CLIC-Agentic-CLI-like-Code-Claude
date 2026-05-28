@@ -4,3 +4,4 @@ dist/
 chat_history.json
 *.bak
 *.tsbuildinfo
+token_graph.json

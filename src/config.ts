@@ -9,6 +9,7 @@ import chalk from 'chalk';
 export const DEFAULT_MODEL = 'gpt-4o';
 export const DEFAULT_MAX_STEPS = 15;
 export const HISTORY_FILE = process.env.AGENT_HISTORY_FILE || 'chat_history.json';
+export const TOKEN_GRAPH_FILE = process.env.AGENT_TOKEN_GRAPH_FILE || 'token_graph.json';
 
 export interface AppConfig {
   apiKey: string;

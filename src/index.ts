@@ -15,8 +15,9 @@ import { printBanner, printSeparator, promptPrintSeperator } from './ui.js';
 import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
-import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase } from './config.js';
+import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage } from './memory.js';
+import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
 import type { ConfirmFn } from './tools/index.js';
 import { fetchAvailableModelOptions } from './tools/listModelfromOpenAI.js';
 // Commands
@@ -166,8 +167,11 @@ async function main(prompt: string | undefined, opts: {
   let systemPrompt = buildSystemPrompt(knowledgeBase);
   let client = createClient(model);
 
-  // ── Load or initialise history ────────────────────────────────────────────
+  // ── Load or initialise history + Knowledge Graph ──────────────────────────
   await loadHistory();
+  await loadGraph(TOKEN_GRAPH_FILE);
+  const sessionId = `session_${Date.now()}`;
+  addNode({ id: sessionId, type: 'session', properties: { model, role: kbFile ?? null }, createdAt: new Date().toISOString() });
 
   console.log(chalk.dim(`  System: ${process.platform} (${process.arch}) | Model: ${model}`));
   if (knowledgeBase) {
@@ -199,9 +203,10 @@ async function main(prompt: string | undefined, opts: {
     const singleConfirmFn = createSingleTurnConfirmFn(singleRl);
     pushMessage({ role: 'user', content: prompt });
     await runAgentTurn(client, getMessages(), systemPrompt, {
-      model, maxSteps, confirm: singleConfirmFn, showRaw,
+      model, maxSteps, confirm: singleConfirmFn, showRaw, sessionId,
     });
     await saveHistory();
+    await saveGraph(TOKEN_GRAPH_FILE);
     singleRl.close();
     return;
   }
@@ -257,11 +262,12 @@ async function main(prompt: string | undefined, opts: {
 
     // ── REPL commands ─────────────────────────────────────────────────────
     if (isSlashedCommand(trimmed)) {
-      const ctx: CommandContext = { model, maxSteps, showRaw, kbFile, systemPrompt, yolo, callLLM };
+      const ctx: CommandContext = { model, maxSteps, showRaw, kbFile, systemPrompt, yolo, sessionId, callLLM };
       const result = await executeCommand(trimmed, ctx);
 
       if (result.type === 'exit') {
         clearInterval(keepAlive);
+        await saveGraph(TOKEN_GRAPH_FILE);
         break;
       }
 
@@ -280,13 +286,14 @@ async function main(prompt: string | undefined, opts: {
         trimToLastUserMessage();
         try {
           await runAgentTurn(client, getMessages(), systemPrompt, {
-            model, maxSteps, confirm: confirmFn, showRaw,
+            model, maxSteps, confirm: confirmFn, showRaw, sessionId,
           });
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(chalk.red(`  ❌ Error during retry: ${msg}`));
         }
         await saveHistory();
+        await saveGraph(TOKEN_GRAPH_FILE);
         console.log();
       }
 
@@ -304,7 +311,7 @@ async function main(prompt: string | undefined, opts: {
 
     try {
       await runAgentTurn(client, getMessages(), systemPrompt, {
-        model, maxSteps, confirm: confirmFn, showRaw,
+        model, maxSteps, confirm: confirmFn, showRaw, sessionId,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -313,6 +320,7 @@ async function main(prompt: string | undefined, opts: {
     }
 
     await saveHistory();
+    await saveGraph(TOKEN_GRAPH_FILE);
     console.log();
   }
 }

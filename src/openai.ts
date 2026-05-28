@@ -41,9 +41,16 @@ export function createClient(_model: string): OpenAI {
 
 // ── Response type ────────────────────────────────────────────────────────────
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface LLMResponse {
   text: string;
   toolCalls: ToolCall[];
+  usage?: TokenUsage;
 }
 
 // ── Stream a message and return structured response ──────────────────────────
@@ -68,12 +75,14 @@ export async function streamMessage(
     tools,
     tool_choice: 'auto',
     stream: true,
+    stream_options: { include_usage: true },
     max_tokens: 8192,
     temperature: 0.3,
   });
 
   let fullText = '';
   const toolCallChunksMap = new Map<number, { id: string; name: string; arguments: string }>();
+  let usage: TokenUsage | undefined;
 
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta;
@@ -98,6 +107,14 @@ export async function streamMessage(
         }
       }
     }
+
+    if (chunk.usage) {
+      usage = {
+        promptTokens: chunk.usage.prompt_tokens,
+        completionTokens: chunk.usage.completion_tokens,
+        totalTokens: chunk.usage.total_tokens,
+      };
+    }
   }
 
   const toolCalls: ToolCall[] = Array.from(toolCallChunksMap.values()).map(tc => ({
@@ -109,5 +126,5 @@ export async function streamMessage(
     },
   }));
 
-  return { text: fullText, toolCalls };
+  return { text: fullText, toolCalls, usage };
 }

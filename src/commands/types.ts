@@ -15,6 +15,7 @@ export interface CommandContext {
   kbFile?: string;
   systemPrompt?: string;
   yolo?: boolean;
+  sessionId?: string;
   /** Single-shot LLM call injected by index.ts — used by /compact */
   callLLM?: (messages: ChatMessage[]) => Promise<string>;
 }
