@@ -189,11 +189,15 @@ flowchart TD
     class cmdRegistry,compact cmdNode
     class toolRegistry registry
     class readFile,writeFile,appendFile,modifyFile,listDir,runCmd,search,webSearch,github,listModels toolItem
+
+    linkStyle default stroke:#ffffff,stroke-width:1.5px
 ```
 
 ### ReAct Agent Loop
 
 The core pattern is a **ReAct loop** (Reason + Act). This runs in `agent.ts`:
+
+<div align="center">
 
 ```mermaid
 flowchart TD
@@ -239,7 +243,11 @@ flowchart TD
     class ToolUse,SaveResult toolExec
     class EndTurn success
     class Abort abort
+
+    linkStyle default stroke:#ffffff,stroke-width:1.5px
 ```
+
+</div>
 
 **Key design**: The `openai` SDK's native streaming + function calling handles structured tool calls — no manual JSON parsing or `done` flag needed. The absence of further function calls naturally signals when the agent is finished.
 
@@ -414,7 +422,7 @@ Models are fetched live from your configured API endpoint at startup and present
 
 | Model ID | Provider |
 |---|---|
-| `anthropic--claude-4-sonnet` | Anthropic (SAP AI Core) |
+| `anthropic--claude-4-sonnet` | Anthropic |
 | `anthropic--claude-4.5-haiku` | Anthropic |
 | `anthropic--claude-4.5-opus` | Anthropic |
 | `anthropic--claude-4.5-sonnet` | Anthropic |
