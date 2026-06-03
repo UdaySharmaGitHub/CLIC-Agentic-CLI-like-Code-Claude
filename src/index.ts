@@ -77,8 +77,11 @@ async function main(prompt: string | undefined, opts: {
   }
 
   // Base URL check
-  const baseUrl = process.env.BASE_URL?.trim() || 'https://api.openai.com/v1';
-  console.log(chalk.green(`  ✅ Base URL: ${chalk.white(baseUrl)}`));
+  const isCustomBaseUrl = !!process.env.BASE_URL?.trim();
+  console.log(isCustomBaseUrl
+    ? chalk.green(`  ✅ Base URL: ${chalk.white('Loaded')}`)
+    : chalk.yellow(`  ⚠️  Base URL: ${chalk.white('Not set — using default')}`)
+  );
 
   // ── Model selection — fetch live models from the API ──────────────────────
   // Skipped only when --model flag is explicitly passed (differs from default).
