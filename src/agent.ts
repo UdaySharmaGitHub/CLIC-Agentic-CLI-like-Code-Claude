@@ -26,6 +26,7 @@ export interface AgentOptions {
   confirm: ConfirmFn;
   showRaw: boolean;
   sessionId?: string;
+  signal?: AbortSignal;
 }
 
 // ── Agentic Loop ─────────────────────────────────────────────────────────────
@@ -44,6 +45,12 @@ export async function runAgentTurn(
 
   while (steps < options.maxSteps) {
     steps++;
+
+    // ── Check for abort before each step ────────────────────────────────────
+    if (options.signal?.aborted) {
+      console.log(chalk.yellow('\n  ⚡ Interrupted.'));
+      return;
+    }
 
     if (steps > 1) {
       printStepHeader(steps, options.maxSteps);
@@ -64,7 +71,7 @@ export async function runAgentTurn(
           console.log();
         }
         process.stdout.write(text);
-      });
+      }, options.signal);
 
       if (!textStarted) spinner.stop();
       if (textStarted) {
@@ -73,6 +80,10 @@ export async function runAgentTurn(
       }
     } catch (err: unknown) {
       spinner.stop();
+      if (options.signal?.aborted) {
+        console.log(chalk.yellow('\n  ⚡ Interrupted.'));
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       console.log();
       console.log(chalk.red(`  ❌ API Error: ${msg}`));

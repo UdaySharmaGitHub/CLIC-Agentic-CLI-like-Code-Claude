@@ -61,6 +61,7 @@ export async function streamMessage(
   systemPrompt: string,
   messages: ChatMessage[],
   onText: (text: string) => void,
+  signal?: AbortSignal,
 ): Promise<LLMResponse> {
   const allMessages: ChatCompletionMessageParam[] = [
     ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
@@ -78,7 +79,7 @@ export async function streamMessage(
     stream_options: { include_usage: true },
     max_tokens: 8192,
     temperature: 0.3,
-  });
+  }, { signal });
 
   let fullText = '';
   const toolCallChunksMap = new Map<number, { id: string; name: string; arguments: string }>();

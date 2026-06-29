@@ -195,8 +195,13 @@ async function main(prompt: string | undefined, opts: {
   const createSingleTurnConfirmFn = (singleRl: readline.Interface): ConfirmFn => {
     if (yolo) return async () => true;
     return async (message: string): Promise<boolean> => {
-      const answer = await singleRl.question(`  ${chalk.yellow('▶')} ${message} (y/n): `);
-      return answer.trim().toLowerCase() === 'y';
+      try {
+        const answer = await singleRl.question(`  ${chalk.yellow('▶')} ${message} (y/n): `);
+        return answer.trim().toLowerCase() === 'y';
+      } catch {
+        console.log(chalk.dim('  Cancelled.'));
+        return false;
+      }
     };
   };
 
@@ -220,6 +225,17 @@ async function main(prompt: string | undefined, opts: {
   // streaming unrefs stdin, causing Node.js to exit.
   const keepAlive = setInterval(() => {}, 60_000);
 
+  // Idle SIGINT handler — fires when Ctrl+C is pressed outside an agent turn
+  let agentRunning = false;
+  process.on('SIGINT', async () => {
+    if (agentRunning) return; // mid-turn: handled per-turn below
+    console.log(chalk.dim('\n  Saving and exiting...'));
+    clearInterval(keepAlive);
+    await saveHistory();
+    await saveGraph(TOKEN_GRAPH_FILE);
+    process.exit(0);
+  });
+
   async function ask(q: string): Promise<string> {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -236,8 +252,14 @@ async function main(prompt: string | undefined, opts: {
   const confirmFn: ConfirmFn = yolo
     ? async () => true
     : async (message: string): Promise<boolean> => {
-        const answer = await ask(`  ${chalk.yellow('▶')} ${message} (y/n): `);
-        return answer.trim().toLowerCase() === 'y';
+        try {
+          const answer = await ask(`  ${chalk.yellow('▶')} ${message} (y/n): `);
+          return answer.trim().toLowerCase() === 'y';
+        } catch {
+          // Ctrl+C during the prompt — treat as rejection, not a crash
+          console.log(chalk.dim('  Cancelled.'));
+          return false;
+        }
       };
 
   // Single-shot LLM call injected into CommandContext (used by /compact)
@@ -287,13 +309,20 @@ async function main(prompt: string | undefined, opts: {
 
       if (result.type === 'retry') {
         trimToLastUserMessage();
+        const retryAc = new AbortController();
+        const retryOnSIGINT = () => { retryAc.abort(); process.stdout.write('\n'); };
+        agentRunning = true;
+        process.once('SIGINT', retryOnSIGINT);
         try {
           await runAgentTurn(client, getMessages(), systemPrompt, {
-            model, maxSteps, confirm: confirmFn, showRaw, sessionId,
+            model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: retryAc.signal,
           });
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(chalk.red(`  ❌ Error during retry: ${msg}`));
+        } finally {
+          agentRunning = false;
+          process.removeListener('SIGINT', retryOnSIGINT);
         }
         await saveHistory();
         await saveGraph(TOKEN_GRAPH_FILE);
@@ -312,14 +341,21 @@ async function main(prompt: string | undefined, opts: {
     // ── Agent turn ────────────────────────────────────────────────────────
     pushMessage({ role: 'user', content: trimmed });
 
+    const ac = new AbortController();
+    const onSIGINT = () => { ac.abort(); process.stdout.write('\n'); };
+    agentRunning = true;
+    process.once('SIGINT', onSIGINT);
     try {
       await runAgentTurn(client, getMessages(), systemPrompt, {
-        model, maxSteps, confirm: confirmFn, showRaw, sessionId,
+        model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: ac.signal,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log();
       console.log(chalk.red(`  ❌ Error during agent turn: ${msg}`));
+    } finally {
+      agentRunning = false;
+      process.removeListener('SIGINT', onSIGINT);
     }
 
     await saveHistory();
