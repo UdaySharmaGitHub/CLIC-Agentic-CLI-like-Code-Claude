@@ -30,6 +30,7 @@ User input (REPL or single-turn)
     → openai.ts       (streamMessage via OpenAI client)
       ← LLM responds: text + optional tool_calls + token usage
     → tools/index.ts  (executeTool dispatcher)
+      → all tool calls in a single LLM response run via Promise.all (parallel)
       → individual tool modules (readFile, writeFile, runCommand, …)
     → knowledgeGraph.ts (record turn: tokens, model, tools used)
     → messages pushed back, loop repeats until no more tool_calls
@@ -40,13 +41,13 @@ User input (REPL or single-turn)
 | File | Role |
 |---|---|
 | `src/index.ts` | Entry point: CLI parsing (`commander`), setup wizard (`@clack/prompts`), REPL loop |
-| `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached; records each turn in KG |
-| `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks, returns `TokenUsage` |
+| `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached; executes all tool calls in a single LLM response **in parallel** via `Promise.all`; supports `AbortSignal` for mid-run cancellation; records each turn in KG |
+| `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks, accepts optional `AbortSignal`, returns `LLMResponse` with `TokenUsage` |
 | `src/memory.ts` | In-memory `ChatMessage[]` store (OpenAI message format) + JSON persistence to `chat_history.json` |
 | `src/knowledgeGraph.ts` | Token-tracking Knowledge Graph (session → turn → model/tools/usage); persisted to `token_graph.json` |
 | `src/prompts.ts` | Builds the system prompt, optionally injecting a knowledge base file |
 | `src/config.ts` | Loads `.env`, exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`) |
-| `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel |
+| `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `actionLabel` |
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()` + `executeTool()` |
 | `src/tools/listModelfromOpenAI.ts` | `list_models` tool + `fetchAvailableModelOptions()` startup helper |
@@ -59,7 +60,9 @@ Each tool is a self-contained module that exports:
 - `definition: ToolDefinition` — name, description, JSON Schema parameters (sent to LLM)
 - `execute(input, confirm)` — runs the action, calls `confirm()` before destructive ops
 
-Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`, `github`, `list_models`.
+Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`, `github`.
+
+Note: `list_models` is implemented in `src/tools/listModelfromOpenAI.ts` but is **not** registered in the tool registry — it is only used as a startup helper via `fetchAvailableModelOptions()`.
 
 **To add a new tool:** create `src/tools/myTool.ts` with `definition` and `execute`, then import and add it to the `tools` array in `src/tools/index.ts`.
 
@@ -110,6 +113,9 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - Chat history auto-saves to `chat_history.json` after every turn and on `/exit`.
 - Token graph auto-saves to `token_graph.json` after every turn and on `/exit`.
 - `--yolo` flag skips all `confirm()` prompts in both REPL and single-turn modes.
+- `AgentOptions.signal?: AbortSignal` — pass an `AbortController` signal to cancel a running agent turn mid-stream.
+- `streamMessage` also accepts an optional `AbortSignal` and passes it to the OpenAI SDK `create()` call.
+- `process.env.CLIC_MODEL` is kept in sync with the active model so tools can read it (e.g. `web_search`).
 
 ### Generated files (gitignored)
 

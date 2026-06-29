@@ -1,6 +1,8 @@
 # CLIC — Command Line Intelligence Companion
 
-> **v4.3** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, and a modular tool system.
+> **v4.3** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, parallel tool execution, abort support, and a modular tool system.
+>
+> **Note:** `package.json` currently reports `4.2.0` — see [Feature Optimization #40](./Feature%20Optimization.md) for the version sync fix.
 
 
 CLIC is a terminal-based Agentic CLI that can read/write files, run shell commands, search the web, and chain multiple steps automatically to complete complex tasks — all with human approval before every action.
@@ -46,11 +48,13 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | 🔧 Modify Files | Find-and-replace text in files (with backup) |
 | 📂 List Dirs | Browse directory listings |
 | 🔍 Search Files | Glob-based file search |
-| 🌐 Web Search | Real-time web search via Brave or Tavily API |
+| 🌐 Web Search | Real-time web search (Brave / Tavily API; falls back to LLM if no key set) |
 | 🐙 GitHub | Fetch any user's profile, activity streak, and public repos |
-| 📋 List Models | Enumerate available models from the configured API endpoint |
+| 📋 Model Picker | Live model list fetched from API at startup; switch mid-session with `/model` |
 | 🔗 Agentic Loop | Auto-chain multiple steps: plan → execute → verify |
-| 📚 Knowledge Base | Load role/behavior/persona from a file |
+| ⚡ Parallel Tools | Independent tool calls in the same LLM response run concurrently via `Promise.all` |
+| ⛔ Abort Support | `AbortSignal` threading lets you cancel a running agent turn mid-stream |
+| 📚 Knowledge Base | Load role/behavior/persona from a Markdown file |
 | 🧠 Persistent Memory | Chat history saved to `chat_history.json` — agent remembers across sessions |
 | 🛡️ Safety Layer | Blocked commands + protected paths + human approval |
 
@@ -115,7 +119,7 @@ clic/
 │       ├── searchFiles.ts    ← search_files tool
 │       ├── webSearch.ts      ← web_search tool (Brave / Tavily)
 │       ├── githubExtractor.ts← github tool (profile, streak, repos)
-│       └── listModelfromOpenAI.ts ← list_models tool + startup model fetcher
+│       └── listModelfromOpenAI.ts ← fetchAvailableModelOptions() startup helper (not in tool registry)
 ├── roles based Workflow/     ← Built-in role/persona files (auto-discovered)
 ├── .env                      ← API keys (not committed)
 ├── .env.example              ← Template for .env
@@ -208,7 +212,7 @@ flowchart TD
     CallAPI["⚙️ Call OpenAI-compatible API\n— streaming response —"]
     Decision{{"tool_calls?"}}
     EndTurn(["✅ end_turn\nRecord turn in KG\nReturn response to user"])
-    ToolUse["🔧 Execute tool(s)\nwith user approval"]
+    ToolUse["🔧 Execute tool(s) in parallel\nPromise.all — with user approval"]
     SaveResult["📩 Push tool_result\nback into context"]
     StepCheck{{"Max steps\nreached?"}}
     Abort(["⛔ Abort\nMax steps exceeded"])
@@ -249,7 +253,9 @@ flowchart TD
 
 </div>
 
-**Key design**: The `openai` SDK's native streaming + function calling handles structured tool calls — no manual JSON parsing or `done` flag needed. The absence of further function calls naturally signals when the agent is finished.
+**Key design**: The `openai` SDK's native streaming + function calling handles structured tool calls — no manual JSON parsing or `done` flag needed. When the LLM emits multiple tool calls in a single response, they are executed **concurrently** via `Promise.all` — each tool runs at the same time, results are collected, then pushed back into context together. The absence of further function calls naturally signals when the agent is finished.
+
+**Parallel tool execution**: Independent tool calls in the same LLM response (e.g. `read_file` + `web_search`) run simultaneously. Dependent calls are handled naturally by the loop — the LLM issues them across separate turns, each turn waiting for all results before the next API call.
 
 **Step limit**: Max 15 steps per user turn (configurable via `--max-steps`).
 
@@ -301,21 +307,22 @@ Registered tools:
 | `search_files` | `searchFiles.ts` | Glob-based file search |
 | `web_search` | `webSearch.ts` | Web search via Brave or Tavily |
 | `github` | `githubExtractor.ts` | GitHub profile, streak, and repos |
-| `list_models` | `listModelfromOpenAI.ts` | List models from configured API |
+
+> `list_models` (`listModelfromOpenAI.ts`) is a startup-only helper — it powers the interactive model picker but is **not** registered in the LLM tool registry.
 
 ### Module Responsibilities
 
 | Module | Purpose |
 |---|---|
 | **`index.ts`** | CLI parsing, setup wizard, live model picker, REPL loop. Passes extended `CommandContext` (with `callLLM`, `systemPrompt`, `sessionId`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
-| **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming, executes tools, feeds results back, loops until done or max steps. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
-| **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
+| **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming, executes all tool calls in a single LLM response **in parallel** via `Promise.all`, feeds results back, loops until done or max steps. Accepts an optional `AbortSignal` (`AgentOptions.signal`) to support mid-run cancellation. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
+| **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Accepts an optional `AbortSignal` passed through to the SDK's `create()` call. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
 | **`knowledgeGraph.ts`** | In-memory graph with `addNode()` / `addEdge()` / query helpers (`getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`). Persisted to `token_graph.json` |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional knowledge base |
 | **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `pushMessage()`, `getMessages()`, `clearMessages()`, `loadHistory()`, `saveHistory()`, `trimToLastUserMessage()` |
 | **`config.ts`** | Loads `.env`, exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`), loads KB files |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
-| **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `actionLabel()`, `printToolHeader()`, `printDimOutput()`, etc. |
+| **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `actionLabel()` |
 | **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
 | **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()` + `slashCompleter()` |
 | **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
@@ -589,6 +596,20 @@ pnpm dev -- --kb "./roles based Workflow/devops-expert.md"
 ```
 
 Or select a role during the setup wizard — CLIC auto-discovers any `.md` files in the `roles based Workflow/` folder and presents them as a menu.
+
+Built-in roles available:
+
+| File | Persona |
+|---|---|
+| `AI_Engineer.md` | AI Engineer |
+| `Gen_AI_Engineer.md` | Generative AI Engineer |
+| `genz_workflow.md` | Gen-Z Communication Style |
+| `Legal_Software_Advocate.md` | Legal Software Advocate |
+| `Machine_Learning_Engineer.md` | Machine Learning Engineer |
+| `Multi_Language_Teacher.md` | Multi-Language Teacher |
+| `Senior_Devops_Engineer.md` | Senior DevOps Engineer |
+| `SRE_Engineer.md` | Site Reliability Engineer |
+| `TestCase_Fixer_&_Error_Resolution_Specialist.md` | Test Case Fixer & Error Resolution Specialist |
 
 The file contents are appended to the system prompt as a "ROLE & KNOWLEDGE BASE" section. The agent will adopt the role while retaining all tool capabilities.
 

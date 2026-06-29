@@ -8,7 +8,7 @@
 ## Priority 1 — Reliability & Performance (Low Effort, High Impact)
 
 ### 1. Parallel Tool Execution
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/agent.ts:112`
 - **Problem:** Tool calls in a single LLM response are executed sequentially in a `for` loop, even when they are fully independent of each other.
 - **Fix:** Replace the `for` loop with `Promise.all()` so independent tools run concurrently.
@@ -28,7 +28,7 @@
 ---
 
 ### 2. SIGINT / Ctrl+C Interrupt Handling
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/index.ts` (before REPL loop)
 - **Problem:** Pressing Ctrl+C during streaming kills the process without saving `chat_history.json` or `token_graph.json`. State is lost.
 - **Fix:**
