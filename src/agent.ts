@@ -15,7 +15,7 @@ import ora from 'ora';
 import { streamMessage } from './openai.js';
 import { executeTool, type ConfirmFn } from './tools/index.js';
 import type { ChatMessage } from './memory.js';
-import { printStepHeader } from './ui.js';
+import { printStepHeader, actionLabel } from './ui.js';
 import { addNode, addEdge } from './knowledgeGraph.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -30,6 +30,21 @@ export interface AgentOptions {
 }
 
 // ── Agentic Loop ─────────────────────────────────────────────────────────────
+
+function getToolDetail(name: string, args: Record<string, unknown>): string {
+  switch (name) {
+    case 'read_file':      return `${args.filepath ?? ''}`;
+    case 'write_file':     return `${args.filepath ?? ''}`;
+    case 'append_file':    return `${args.filepath ?? ''}`;
+    case 'modify_file':    return `${args.filepath ?? ''}`;
+    case 'list_directory': return `${args.dirpath ?? ''}`;
+    case 'run_command':    return `$ ${args.command ?? ''}`;
+    case 'search_files':   return `pattern: ${args.pattern ?? ''}`;
+    case 'web_search':     return `${args.query ?? ''}`;
+    case 'github':         return `${String(args.username ?? args.action ?? '')}`;
+    default:               return JSON.stringify(args).slice(0, 60);
+  }
+}
 
 export async function runAgentTurn(
   client: OpenAI,
@@ -120,21 +135,73 @@ export async function runAgentTurn(
     }
 
     // ── Execute tool calls ───────────────────────────────────────────────────
-    for (const call of response.toolCalls) {
-      usedToolNames.add(call.function.name);
-      let args: Record<string, unknown>;
-      try {
-        args = JSON.parse(call.function.arguments);
-      } catch {
-        args = {};
-      }
+    if (response.toolCalls.length > 1) {
 
-      const result = await executeTool(
-        call.function.name,
-        args,
-        options.confirm,
+      // Parse args for all calls up front
+      const pendingCalls = response.toolCalls.map((call) => {
+        usedToolNames.add(call.function.name);
+        let args: Record<string, unknown>;
+        try { args = JSON.parse(call.function.arguments); } catch { args = {}; }
+        return { call, args };
+      });
+
+      // Print compact queue preview — one line per tool
+      console.log();
+      console.log(chalk.dim(`  ┄ ${pendingCalls.length} tools queued ┄`.padEnd(47, '┄')));
+      for (const { call, args } of pendingCalls) {
+        const detail = getToolDetail(call.function.name, args);
+        console.log(`    ${actionLabel(call.function.name)}  ${chalk.dim('→')} ${chalk.dim(detail)}`);
+      }
+      console.log(chalk.dim(`  ${'┄'.repeat(45)}`));
+      console.log();
+
+      // Single prompt: parallel or sequential?
+      const runParallel = await options.confirm(
+        `Run all ${pendingCalls.length} tools in parallel?`,
       );
 
+      if (runParallel) {
+        // ── Parallel path ────────────────────────────────────────────────
+        console.log(chalk.dim(`  ⚡ Running ${pendingCalls.length} tools in parallel...`));
+
+        // User already consented via "Run all N tools in parallel? y" above.
+        // Auto-approve individual tool confirms — asking again per-tool while
+        // concurrent tools are already printing output would garble the terminal.
+        const settled = await Promise.all(
+          pendingCalls.map(async ({ call, args }) => {
+            const result = await executeTool(call.function.name, args, async () => true);
+            return { id: call.id, result };
+          }),
+        );
+
+        // Push results in original call order (required by OpenAI API)
+        const resultMap = new Map(settled.map(({ id, result }) => [id, result]));
+        for (const { call } of pendingCalls) {
+          const result = resultMap.get(call.id)!;
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ result: result.output, error: result.isError }),
+          });
+        }
+      } else {
+        // ── Sequential path ──────────────────────────────────────────────
+        for (const { call, args } of pendingCalls) {
+          const result = await executeTool(call.function.name, args, options.confirm);
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ result: result.output, error: result.isError }),
+          });
+        }
+      }
+    } else {
+      // Single tool — no preview, no prompt, run directly
+      const call = response.toolCalls[0];
+      usedToolNames.add(call.function.name);
+      let args: Record<string, unknown>;
+      try { args = JSON.parse(call.function.arguments); } catch { args = {}; }
+      const result = await executeTool(call.function.name, args, options.confirm);
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
