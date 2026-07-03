@@ -61,7 +61,7 @@ export async function execute(
     printSeparator();
 
     return {
-      output: `[Search results for '${input.pattern}' in '${dir}'] (${files.length} files):\n${files.join('\n')}`,
+      output: `[Search results for '${input.pattern}' in '${dir}'] (${files.length} files):\n${files.slice(0, 400).join('\n')}${files.length > 400 ? `\n[...${files.length - 400} more paths omitted — narrow your glob pattern]` : ''}`,
       isError: false,
     };
   } catch (err: unknown) {

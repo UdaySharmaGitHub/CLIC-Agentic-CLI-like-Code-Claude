@@ -29,6 +29,26 @@ export interface AgentOptions {
   signal?: AbortSignal;
 }
 
+// ── Tool Output Truncation ───────────────────────────────────────────────────
+
+const MAX_TOOL_OUTPUT = 12_000;
+
+function tryMinifyJson(s: string): string {
+  try { return JSON.stringify(JSON.parse(s)); } catch { return s; }
+}
+
+function truncateOutput(output: string): string {
+  const normalized = tryMinifyJson(output);
+  if (normalized.length <= MAX_TOOL_OUTPUT) return normalized;
+  const half = MAX_TOOL_OUTPUT / 2;
+  const omitted = normalized.length - MAX_TOOL_OUTPUT;
+  return (
+    normalized.slice(0, half) +
+    `\n[...${omitted} chars omitted — use a more targeted command to see specific parts...]\n` +
+    normalized.slice(-half)
+  );
+}
+
 // ── Agentic Loop ─────────────────────────────────────────────────────────────
 
 function getToolDetail(name: string, args: Record<string, unknown>): string {
@@ -181,7 +201,7 @@ export async function runAgentTurn(
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: JSON.stringify({ result: result.output, error: result.isError }),
+            content: JSON.stringify({ result: truncateOutput(result.output), error: result.isError }),
           });
         }
       } else {
@@ -191,7 +211,7 @@ export async function runAgentTurn(
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: JSON.stringify({ result: result.output, error: result.isError }),
+            content: JSON.stringify({ result: truncateOutput(result.output), error: result.isError }),
           });
         }
       }
@@ -205,7 +225,7 @@ export async function runAgentTurn(
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
-        content: JSON.stringify({ result: result.output, error: result.isError }),
+        content: JSON.stringify({ result: truncateOutput(result.output), error: result.isError }),
       });
     }
 

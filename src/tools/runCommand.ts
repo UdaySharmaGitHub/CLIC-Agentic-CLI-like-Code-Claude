@@ -67,8 +67,20 @@ export async function execute(
     }
     printSeparator();
 
+    // Surface error/warning lines first so they survive context truncation
+    const MAX_CMD_OUTPUT = 12_000;
+    const errorLines = lines.filter(l => /error|warn|fail|exception|traceback/i.test(l));
+    const errorBlock = errorLines.length > 0
+      ? `[Errors/Warnings]:\n${errorLines.join('\n')}\n\n[Full output]:\n`
+      : '';
+    const fullOutput = `[Command output (exit ${result.exitCode})]:\n${errorBlock}${output}`;
+
     return {
-      output: `[Command output (exit ${result.exitCode})]:\n${output}`,
+      output: fullOutput.length > MAX_CMD_OUTPUT
+        ? fullOutput.slice(0, MAX_CMD_OUTPUT / 2) +
+          `\n[...${fullOutput.length - MAX_CMD_OUTPUT} chars omitted...]\n` +
+          fullOutput.slice(-MAX_CMD_OUTPUT / 2)
+        : fullOutput,
       isError: result.exitCode !== 0,
     };
   } catch (err: unknown) {

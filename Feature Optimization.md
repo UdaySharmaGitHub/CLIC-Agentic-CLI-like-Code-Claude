@@ -46,16 +46,76 @@
 ---
 
 ### 3. Tool Output Truncation
-- [ ] **Status:** Not implemented
-- **File:** `src/agent.ts:127-132`
+- [x] **Status:** Implemented
+- **File:** `src/agent.ts`
 - **Problem:** Raw tool output is pushed into context with no size limit. A `run_command` that prints 10,000 lines of logs silently blows the context window, causing the LLM to fail or hallucinate.
-- **Fix:** Cap tool result content at ~8,000 characters before pushing as a `tool` message. Append a truncation notice:
+- **Implemented Fix:** Head+tail truncation capped at 12,000 chars. Takes first 6k + last 6k so errors at the end are not lost. Appends a notice so the LLM knows output was cut and can re-run with a targeted command:
   ```typescript
-  const MAX_TOOL_OUTPUT = 8_000;
-  const content = result.output.length > MAX_TOOL_OUTPUT
-    ? result.output.slice(0, MAX_TOOL_OUTPUT) + `\n[...truncated — ${result.output.length - MAX_TOOL_OUTPUT} chars omitted]`
-    : result.output;
+  const MAX_TOOL_OUTPUT = 12_000;
+  function truncateOutput(output: string): string {
+    if (output.length <= MAX_TOOL_OUTPUT) return output;
+    const half = MAX_TOOL_OUTPUT / 2;
+    const omitted = output.length - MAX_TOOL_OUTPUT;
+    return (
+      output.slice(0, half) +
+      `\n[...${omitted} chars omitted — use a more targeted command to see specific parts...]\n` +
+      output.slice(-half)
+    );
+  }
   ```
+- **Applied at:** all 3 `messages.push` sites (parallel path, sequential path, single-tool path).
+
+#### Additional Techniques
+
+**1. JSON Minification (before the cap)**
+- **Status:** Future improvement
+- For tools that return JSON (`github`, `web_search`), minify before applying the cap. Pretty-printed JSON is 2–3× larger than compact JSON — squeezes 30–50% more useful data into the same budget:
+```typescript
+function tryMinifyJson(s: string): string {
+  try { return JSON.stringify(JSON.parse(s)); } catch { return s; }
+}
+```
+> Does NOT help for plain text (README, logs, command output).
+
+**2. Tool-Specific Strategies**
+- **Status:** ✅ Implemented for `run_command` and `search_files`
+
+| Tool | Strategy | Status |
+|---|---|---|
+| `run_command` | Error-line priority extraction + 12k cap | ✅ Done — `src/tools/runCommand.ts` |
+| `search_files` | Cap at 200 paths with notice | ✅ Done — `src/tools/searchFiles.ts` |
+| `read_file` | Return only lines N–M or matching a query | Future |
+| `github` | Minify JSON before cap | Future |
+
+**3. Token Count Instead of Char Count**
+- **Status:** Future improvement
+- `12_000 chars ≈ 3,000 tokens` but code is denser than prose. A more accurate guard:
+```typescript
+const approxTokens = Math.ceil(output.length / 4);
+if (approxTokens > MAX_TOKENS) { ... }
+```
+
+**4. Error-Line Priority Extraction**
+- **Status:** ✅ Implemented in `src/tools/runCommand.ts`
+- Filters `error|warn|fail|exception|traceback` lines and prepends them before full output so they survive truncation:
+```typescript
+const errorLines = lines.filter(l => /error|warn|fail|exception|traceback/i.test(l));
+const errorBlock = errorLines.length > 0
+  ? `[Errors/Warnings]:\n${errorLines.join('\n')}\n\n[Full output]:\n`
+  : '';
+```
+
+**5. LLM-Assisted Summarization**
+- **Status:** Future improvement
+- For very large outputs, call the LLM to summarize before injecting into context. Expensive (extra API call per truncation) but semantically meaningful compression. Use only as a last resort for outputs >50k chars.
+
+**6. Deduplication Across Turns**
+- **Status:** Future improvement
+- If the agent reads the same file twice in the same session, skip re-injecting the full content:
+```typescript
+const seen = new Set<string>(); // hash of `toolName:argsJSON`
+// if seen, inject "[same output as turn N]" instead
+```
 
 ---
 
@@ -269,9 +329,9 @@
 
 | # | Feature | Priority | Status |
 |---|---|---|---|
-| 1 | Parallel Tool Execution | P1 | ⬜ Not started |
-| 2 | SIGINT / Ctrl+C Handler | P1 | ⬜ Not started |
-| 3 | Tool Output Truncation | P1 | ⬜ Not started |
+| 1 | Parallel Tool Execution | P1 | ✅ Implemented |
+| 2 | SIGINT / Ctrl+C Handler | P1 | ✅ Implemented |
+| 3 | Tool Output Truncation | P1 | ✅ Implemented |
 | 4 | API Retry + Backoff | P1 | ⬜ Not started |
 | 5 | Auto Context Guard + Auto-Compact | P2 | ⬜ Not started |
 | 6 | Diff Display for File Writes | P2 | ⬜ Not started |
@@ -662,7 +722,7 @@
 |---|---|---|---|---|
 | 1 | Parallel Tool Execution | Performance | P1 | ⬜ Not started |
 | 2 | SIGINT / Ctrl+C Handler | Reliability | P1 | ⬜ Not started |
-| 3 | Tool Output Truncation | Reliability | P1 | ⬜ Not started |
+| 3 | Tool Output Truncation | Reliability | P1 | ✅ Implemented |
 | 4 | API Retry + Backoff | Reliability | P1 | ⬜ Not started |
 | 5 | Auto Context Guard + Auto-Compact | Memory | P2 | ⬜ Not started |
 | 6 | Diff Display for File Writes | UX | P2 | ⬜ Not started |
