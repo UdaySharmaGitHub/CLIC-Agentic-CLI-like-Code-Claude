@@ -120,25 +120,45 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 ---
 
 ### 4. API Retry with Exponential Backoff
-- [ ] **Status:** Not implemented
-- **File:** `src/openai.ts:72`
-- **Problem:** Any API error (rate limit 429, transient 502/503) is immediately fatal — the agent turn dies with no retry.
-- **Fix:** Wrap `client.chat.completions.create` with a retry loop — 3 attempts, delays 1s → 2s → 4s, retry only on 429/502/503:
+- [x] **Status:** Implemented
+- **File:** `src/openai.ts:45-62`
+- **Problem:** Any API error (rate limit 429, transient 500/502/503/504) was immediately fatal — the agent turn died with no retry.
+- **Implemented Fix:** A generic `withRetry<T>` helper wraps any async function (not just `completions.create`) and retries up to 4 attempts with exponential backoff + random jitter. Non-retriable errors (400, 401, 404, etc.) and aborted signals are thrown immediately without retrying.
+
   ```typescript
-  async function createWithRetry(client, params, maxRetries = 3) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 4, signal?: AbortSignal): Promise<T> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        return await client.chat.completions.create(params);
-      } catch (err: any) {
-        const retryable = [429, 502, 503].includes(err?.status);
-        if (!retryable || attempt === maxRetries) throw err;
-        const delay = 1000 * Math.pow(2, attempt - 1);
-        console.log(chalk.yellow(`  ⚠️  API error (${err.status}), retrying in ${delay}ms...`));
-        await new Promise(r => setTimeout(r, delay));
+        return await fn();
+      } catch (error) {
+        const isRetriable = error instanceof OpenAI.APIError && [429, 500, 502, 503, 504].includes(error.status);
+        const isLastAttempt = attempt === maxAttempts - 1;
+
+        if (!isRetriable || isLastAttempt) throw error;
+
+        if (signal?.aborted) throw error;
+
+        const delay = 1000 * Math.pow(2, attempt) + Math.random() * 500;
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
+    throw new Error('unreachable');
   }
   ```
+
+- **Retry schedule** (with ~0–500ms jitter each):
+
+  | Attempt | Wait before retry |
+  |---|---|
+  | 0 → 1 | ~1s |
+  | 1 → 2 | ~2s |
+  | 2 → 3 | ~4s |
+  | 3 | throw (last attempt) |
+
+- **Retriable errors:** `429` (rate limit), `500`, `502`, `503`, `504` (transient server errors)
+- **Non-retriable errors:** `400` (bad request), `401` (invalid key), `404` (model not found) — thrown immediately
+- **AbortSignal aware:** if the user presses Ctrl+C before the sleep completes, the error is re-thrown immediately instead of waiting and retrying
+- **Applied at:** `streamMessage` wraps `client.chat.completions.create(...)` via `withRetry(() => ..., 4, signal)`
 
 ---
 
@@ -332,7 +352,7 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 | 1 | Parallel Tool Execution | P1 | ✅ Implemented |
 | 2 | SIGINT / Ctrl+C Handler | P1 | ✅ Implemented |
 | 3 | Tool Output Truncation | P1 | ✅ Implemented |
-| 4 | API Retry + Backoff | P1 | ⬜ Not started |
+| 4 | API Retry + Backoff | P1 | ✅ Implemented |
 | 5 | Auto Context Guard + Auto-Compact | P2 | ⬜ Not started |
 | 6 | Diff Display for File Writes | P2 | ⬜ Not started |
 | 7 | Auto Project Context Injection | P2 | ⬜ Not started |
@@ -763,4 +783,4 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 
 ---
 
-*Last updated: 2026-06-03*
+*Last updated: 2026-07-06*
