@@ -79,6 +79,37 @@ export function getAllSessionNodes(): KGNode[] {
 
 // ── Query helpers ────────────────────────────────────────────────────────────
 
+// ── Get Session Token by Model ────────────────────────────────────────────────────────────
+
+export function getSessionTokensByModel(sessionId: string): Record<string, { promptTokens: number; completionTokens: number }> {
+  const turns = getNeighbors(sessionId, 'HAS_TURN');
+  const byModel: Record<string, { promptTokens: number; completionTokens: number }> = {};
+  for (const turn of turns) {
+    const modelNode = getNeighbors(turn.id, 'USED_MODEL')[0];
+    const modelName = modelNode?.properties.name as string | undefined;
+    if (!modelName) continue;
+    const usage = getNeighbors(turn.id, 'HAS_USAGE')[0];
+    if (!usage) continue;
+    byModel[modelName] ??= { promptTokens: 0, completionTokens: 0 };
+    byModel[modelName].promptTokens     += (usage.properties.promptTokens as number)     || 0;
+    byModel[modelName].completionTokens += (usage.properties.completionTokens as number) || 0;
+  }
+  return byModel;
+}
+
+export function getGlobalTokensByModel(): Record<string, { promptTokens: number; completionTokens: number }> {
+  const sessions = getAllSessionNodes();
+  const byModel: Record<string, { promptTokens: number; completionTokens: number }> = {};
+  for (const s of sessions) {
+    for (const [model, tokens] of Object.entries(getSessionTokensByModel(s.id))) {
+      byModel[model] ??= { promptTokens: 0, completionTokens: 0 };
+      byModel[model].promptTokens     += tokens.promptTokens;
+      byModel[model].completionTokens += tokens.completionTokens;
+    }
+  }
+  return byModel;
+}
+
 export function getSessionTokenSummary(sessionId: string): TokenSummary {
   const turns = getNeighbors(sessionId, 'HAS_TURN');
   let promptTokens = 0, completionTokens = 0, totalTokens = 0;

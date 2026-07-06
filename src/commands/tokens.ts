@@ -6,8 +6,10 @@
 
 import chalk from 'chalk';
 import { getMessages } from '../memory.js';
-import { getSessionTokenSummary, getGlobalTokenSummary, getSessionToolUsage } from '../knowledgeGraph.js';
+import { getSessionTokenSummary, getGlobalTokenSummary, getSessionToolUsage, getSessionTokensByModel, getGlobalTokensByModel } from '../knowledgeGraph.js';
 import type { SlashCommand } from './types.js';
+// Real Time Pricing for the AI Models
+import { getCost, formatCost, isPricingLoaded } from '../pricing.js';
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -23,8 +25,8 @@ export const command: SlashCommand = {
     // ── Actual usage from KG ─────────────────────────────────────────────────
     if (ctx.sessionId) {
       const session = getSessionTokenSummary(ctx.sessionId);
-      const global  = getGlobalTokenSummary();
-      const tools   = getSessionToolUsage(ctx.sessionId);
+      const global = getGlobalTokenSummary();
+      const tools = getSessionToolUsage(ctx.sessionId);
 
       // Check if any usage node in this session is estimated vs actual
       const { getGraph } = await import('../knowledgeGraph.js');
@@ -49,6 +51,17 @@ export const command: SlashCommand = {
       console.log(`    ${chalk.dim('Prompt tokens')}       ${session.promptTokens.toLocaleString()}`);
       console.log(`    ${chalk.dim('Completion tokens')}   ${session.completionTokens.toLocaleString()}`);
       console.log(`    ${chalk.dim('Total tokens')}        ${chalk.white(session.totalTokens.toLocaleString())}`);
+
+      // Dynamically calculate and display cost per model if pricing data is loaded
+      const byModel = getSessionTokensByModel(ctx.sessionId);
+      let sessionTotalCost = 0;
+      for (const [model, tokens] of Object.entries(byModel)) {
+        const cost = getCost(model, tokens.promptTokens, tokens.completionTokens);
+        if (cost) sessionTotalCost += cost.totalCost;
+      }
+      if (isPricingLoaded() && sessionTotalCost > 0) {
+        console.log(`    ${chalk.dim('Estimated cost')}      ${formatCost(sessionTotalCost)}`);
+      }
       console.log(`    ${chalk.dim('Agent turns')}         ${session.turnCount}`);
 
       if (Object.keys(tools).length > 0) {
@@ -62,7 +75,19 @@ export const command: SlashCommand = {
       console.log();
       console.log(chalk.bold('  All-time total'));
       console.log(`    ${chalk.dim('Total tokens')}        ${chalk.white(global.totalTokens.toLocaleString())}`);
+
+      const byModelGlobal = getGlobalTokensByModel();
+      let globalTotalCost = 0;
+      for (const [model, tokens] of Object.entries(byModelGlobal)) {
+        const cost = getCost(model, tokens.promptTokens, tokens.completionTokens);
+        if (cost) globalTotalCost += cost.totalCost;
+      }
+      if (isPricingLoaded() && globalTotalCost > 0) {
+        console.log(`    ${chalk.dim('Estimated cost')}      ${formatCost(globalTotalCost)}`);
+      }
+
       console.log(`    ${chalk.dim('Agent turns')}         ${global.turnCount}`);
+      console.log(`    ${chalk.dim('Model Name')}          ${ctx.model}`); 
       console.log(sep);
     }
 

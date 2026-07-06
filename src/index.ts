@@ -23,6 +23,8 @@ import { fetchAvailableModelOptions } from './tools/listModelfromOpenAI.js';
 // Commands
 import { executeCommand, isSlashedCommand, slashCompleter, type CommandContext } from './commands/index.js';
 import ora from 'ora';
+// Pricing for the AI Models
+import { loadPricing } from './pricing.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +85,8 @@ async function main(prompt: string | undefined, opts: {
     : chalk.yellow(`  ⚠️  Base URL: ${chalk.white('Not set — using default')}`)
   );
 
+  await loadPricing(); // Preload pricing data for the models
+   
   // ── Model selection — fetch live models from the API ──────────────────────
   // Skipped only when --model flag is explicitly passed (differs from default).
   if (opts.model === DEFAULT_MODEL) {
