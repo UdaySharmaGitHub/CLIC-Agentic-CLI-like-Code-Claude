@@ -1,6 +1,6 @@
 {
   "name": "clic",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "CLIC — Command Line Intelligence Companion. An agentic CLI Like CLAUDE CODE",
   "type": "module",
   "bin": {

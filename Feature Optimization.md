@@ -163,7 +163,7 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 ---
 
 ### 9. Cost Estimation in `/tokens`
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/commands/tokens.ts`
 - **Problem:** `/tokens` shows raw token counts but no cost estimate, making it hard to track spending.
 - **Fix:** Add a `MODEL_PRICING` map (input $/1M tokens, output $/1M tokens) keyed by model name. Calculate and display estimated cost per session and all-time totals.
@@ -177,6 +177,90 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 ---
 
 ## Priority 2 — Core UX (Medium Effort, High Impact)
+
+### 41. Modes / Autonomy Boundary (`--mode`)
+- [ ] **Status:** Not implemented
+- **Files:** `src/index.ts`, `src/agent.ts`, `src/commands/index.ts`, new `src/commands/mode.ts`
+- **Problem:** CLIC currently operates in a single implicit mode — it confirms every destructive action individually but has no concept of a broader autonomy level. Users who want to review a plan before execution have no way to do that. Users who fully trust the agent and want zero interruptions must use `--yolo`, which is an all-or-nothing kill-switch with no intermediate option. There is no "let the agent plan first, I'll approve the plan, then it runs" flow.
+- **Fix:** Introduce three named autonomy modes that control when the agent pauses for human input:
+
+#### Modes
+
+| Mode | Trigger | Behaviour |
+|---|---|---|
+| `manual` | Default (replaces current no-flag behaviour) | Agent pauses **before every tool call** — user approves each action with `y/n`. Identical to current non-yolo behaviour. |
+| `plan` | `--mode plan` or `/mode plan` | Agent completes **one full thinking pass** (calls LLM once, collects all intended tool calls) and prints a numbered plan — but executes **nothing**. User reviews the plan and types `go` to execute, `edit <n> <new-instruction>` to revise a step, or `cancel` to abort. Only after explicit approval does the agent begin executing. |
+| `auto` | `--mode auto` or `/mode auto` | Agent runs fully autonomously — no per-tool confirms, no plan review (equivalent to `--yolo` but named and discoverable). Warnings are printed at entry. |
+
+#### Implementation detail — `plan` mode flow
+
+```
+User: "refactor src/auth.ts to use async/await throughout"
+
+[PLAN MODE] Agent is planning…
+
+  Step 1  READ FILE     src/auth.ts
+  Step 2  WRITE FILE    src/auth.ts  (refactored version)
+  Step 3  RUN COMMAND   npx tsc --noEmit  (verify no type errors)
+
+  Type  go           — execute all steps
+        edit <n>     — revise step n
+        cancel       — abort
+> go
+
+  ▶ Executing step 1 / 3…
+```
+
+The plan is built by making one LLM call with a special system instruction: "Return a numbered list of tool calls you intend to make. Do not call tools yet — only describe what you plan to do." The response is parsed into a `PlanStep[]` and rendered. On `go`, the agent enters normal execution using the already-constructed steps, so the LLM is **not** called again for the same task.
+
+```typescript
+// src/agent.ts — AgentOptions extension
+export interface AgentOptions {
+  model: string;
+  maxSteps: number;
+  confirm: ConfirmFn;
+  showRaw: boolean;
+  sessionId?: string;
+  signal?: AbortSignal;
+  mode?: 'manual' | 'plan' | 'auto';   // ← new
+}
+```
+
+#### `/mode` slash command
+
+Add `src/commands/mode.ts` with the `/mode` command (alias `/md`):
+
+```typescript
+// Usage:
+/mode           → show current mode
+/mode manual    → switch to manual (per-action confirms)
+/mode plan      → switch to plan-first mode
+/mode auto      → switch to full-auto (no confirms)
+```
+
+`/mode` returns `{ type: 'update', updates: { mode: newMode } }`. `index.ts` reads `mode` from `CommandContext` and passes it through to `runAgentTurn` as `AgentOptions.mode`.
+
+#### Interaction with `--yolo`
+
+`--yolo` is preserved as a legacy flag and maps to `auto` mode at startup:
+```typescript
+const mode = opts.yolo ? 'auto' : (opts.mode ?? 'manual');
+```
+
+A deprecation notice is printed when `--yolo` is used:
+```
+  ⚠️  --yolo is deprecated. Use --mode auto instead.
+```
+
+#### Safety guardrails
+
+- Switching to `auto` mid-session prints: `⚠️  Auto mode enabled — all actions will execute without confirmation.`
+- Switching from `auto` back to `manual` prints: `✅ Manual mode restored — per-action confirmation is back on.`
+- `plan` mode never executes a tool call without at least one explicit user `go` — even if `maxSteps` would permit it.
+
+- **Expected gain:** Matches the three-tier autonomy model used by leading AI coding tools (Claude Code has `--yolo`/default, Cursor has auto-run, Copilot Workspace has plan+edit). Gives users full control over how much they trust the agent at any given moment without restarting.
+
+---
 
 ### 5. Auto Context Window Guard + Auto-Compact
 - [ ] **Status:** Not implemented
@@ -365,6 +449,7 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 | 14 | `--no-history` Privacy Flag | P4 | ⬜ Not started |
 | 15 | Plugin / External Tool Loading | P4 | ⬜ Not started |
 | 16 | Conversation Export | P4 | ⬜ Not started |
+| **41** | **Modes / Autonomy Boundary** | **P2** | **⬜ Not started** |
 
 ---
 
@@ -740,15 +825,15 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 
 | # | Feature | Category | Priority | Status |
 |---|---|---|---|---|
-| 1 | Parallel Tool Execution | Performance | P1 | ⬜ Not started |
-| 2 | SIGINT / Ctrl+C Handler | Reliability | P1 | ⬜ Not started |
+| 1 | Parallel Tool Execution | Performance | P1 | ✅ Implemented |
+| 2 | SIGINT / Ctrl+C Handler | Reliability | P1 | ✅ Implemented |
 | 3 | Tool Output Truncation | Reliability | P1 | ✅ Implemented |
-| 4 | API Retry + Backoff | Reliability | P1 | ⬜ Not started |
-| 5 | Auto Context Guard + Auto-Compact | Memory | P2 | ⬜ Not started |
+| 4 | API Retry + Backoff | Reliability | P1 | ✅ Implemented |
+| 5 | Auto Context Guard + Auto-Compact | Memory | P2 | ⬜ started |
 | 6 | Diff Display for File Writes | UX | P2 | ⬜ Not started |
 | 7 | Auto Project Context Injection | UX | P2 | ⬜ Not started |
 | 8 | Multiline Input Support | UX | P3 | ⬜ Not started |
-| 9 | Cost Estimation in /tokens | UX | P1 | ⬜ Not started |
+| 9 | Cost Estimation in /tokens | UX | P1 | ✅ Implemented |
 | 10 | Streaming Abort Controller | Reliability | P3 | ⬜ Not started |
 | 11 | Zod Tool Input Validation | Correctness | P3 | ⬜ Not started |
 | 12 | Named Sessions | UX | P3 | ⬜ Not started |
@@ -780,7 +865,8 @@ const seen = new Set<string>(); // hash of `toolName:argsJSON`
 | 38 | Configurable Command Timeout | UX | P3 | ⬜ Not started |
 | 39 | REPL Arrow-Key History | UX | P2 | ⬜ Not started |
 | 40 | `package.json` Version Sync | Cleanup | P3 | ⬜ Not started |
+| **41** | **Modes / Autonomy Boundary** | **UX / Control** | **P2** | **⬜ Not started** |
 
 ---
 
-*Last updated: 2026-07-06*
+*Last updated: 2026-07-21*

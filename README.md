@@ -1,8 +1,6 @@
 # CLIC — Command Line Intelligence Companion
 
-> **v4.3** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, parallel tool execution, abort support, and a modular tool system.
->
-> **Note:** `package.json` currently reports `4.2.0` — see [Feature Optimization #40](./Feature%20Optimization.md) for the version sync fix.
+> **v4.3** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, user-controlled parallel tool execution, abort support, API retry with exponential backoff, cost estimation, and a modular tool system.
 
 
 CLIC is a terminal-based Agentic CLI that can read/write files, run shell commands, search the web, and chain multiple steps automatically to complete complex tasks — all with human approval before every action.
@@ -33,6 +31,9 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 - [Persistent Agent Memory](#persistent-agent-memory)
 - [Safety](#safety)
 - [Environment Variables](#environment-variables)
+- [Claude Code Integration](#claude-code-integration)
+  - [Claude Commands](#claude-commands)
+  - [Claude Skills](#claude-skills)
 
 ---
 
@@ -48,12 +49,14 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | 🔧 Modify Files | Find-and-replace text in files (with backup) |
 | 📂 List Dirs | Browse directory listings |
 | 🔍 Search Files | Glob-based file search |
-| 🌐 Web Search | Real-time web search (Brave / Tavily API; falls back to LLM if no key set) |
+| 🌐 Web Search | LLM-powered knowledge lookup — routes query to the active model via a fresh API call; no external search key required |
 | 🐙 GitHub | Fetch any user's profile, activity streak, and public repos |
 | 📋 Model Picker | Live model list fetched from API at startup; switch mid-session with `/model` |
 | 🔗 Agentic Loop | Auto-chain multiple steps: plan → execute → verify |
-| ⚡ Parallel Tools | Independent tool calls in the same LLM response run concurrently via `Promise.all` |
-| ⛔ Abort Support | `AbortSignal` threading lets you cancel a running agent turn mid-stream |
+| ⚡ Parallel Tools | When the LLM issues multiple tool calls, user is prompted once: "parallel or sequential?" — parallel runs all via `Promise.all` |
+| ⛔ Abort Support | `AbortSignal` threading lets you cancel a running agent turn mid-stream with Ctrl+C |
+| 🔁 API Retry | Exponential backoff (up to 4 attempts) on HTTP 429 / 500 / 502 / 503 / 504 errors |
+| 💰 Cost Estimation | `/tokens` shows estimated USD cost per session and all-time using live model pricing data |
 | 📚 Knowledge Base | Load role/behavior/persona from a Markdown file |
 | 🧠 Persistent Memory | Chat history saved to `chat_history.json` — agent remembers across sessions |
 | 🛡️ Safety Layer | Blocked commands + protected paths + human approval |
@@ -83,13 +86,14 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 clic/
 ├── src/
 │   ├── index.ts              ← CLI entry point + REPL loop
-│   ├── agent.ts              ← ReAct agentic loop (runAgentTurn) + KG recording
-│   ├── openai.ts             ← OpenAI SDK wrapper (createClient / streamMessage / TokenUsage)
+│   ├── agent.ts              ← ReAct agentic loop (runAgentTurn) + parallel/sequential tool dispatch + KG recording
+│   ├── openai.ts             ← OpenAI SDK wrapper (createClient / streamMessage / withRetry / TokenUsage)
 │   ├── knowledgeGraph.ts     ← Token-tracking Knowledge Graph (persisted to token_graph.json)
+│   ├── pricing.ts            ← Model pricing data (getCost / formatCost / isPricingLoaded)
 │   ├── prompts.ts            ← System prompt builder (buildSystemPrompt)
-│   ├── memory.ts             ← Chat history management (load/save/push/clear/trim)
+│   ├── memory.ts             ← Chat history management (load/save/push/pop/clear/trim)
 │   ├── safety.ts             ← Blocked commands + protected paths
-│   ├── config.ts             ← Environment loading, constants, KB loader
+│   ├── config.ts             ← Environment loading, constants, KB loader (loadKnowledgeBase)
 │   ├── ui.ts                 ← Banner, help, status, chalk formatters
 │   ├── commands/
 │   │   ├── index.ts          ← Command registry + router + tab completer
@@ -99,7 +103,7 @@ clic/
 │   │   ├── role.ts           ← /role   — switch KB/persona mid-session
 │   │   ├── undo.ts           ← /undo   — remove last exchange
 │   │   ├── retry.ts          ← /retry  — regenerate last response
-│   │   ├── tokens.ts         ← /tokens — actual token counts from Knowledge Graph
+│   │   ├── tokens.ts         ← /tokens — token counts + cost estimate from Knowledge Graph
 │   │   ├── status.ts         ← /status — show system info
 │   │   ├── history.ts        ← /history — show conversation history
 │   │   ├── clear.ts          ← /clear  — clear history
@@ -109,7 +113,7 @@ clic/
 │   └── tools/
 │       ├── index.ts          ← Tool registry + router
 │       ├── types.ts          ← Shared types (ConfirmFn, ToolResult, ToolDefinition)
-│       ├── helpers.ts        ← Shared helpers (resolvePath)
+│       ├── helpers.ts        ← Shared helpers (resolvePath — ~ expansion + path.resolve)
 │       ├── readFile.ts       ← read_file tool
 │       ├── writeFile.ts      ← write_file tool
 │       ├── appendFile.ts     ← append_file tool
@@ -117,7 +121,7 @@ clic/
 │       ├── listDir.ts        ← list_directory tool
 │       ├── runCommand.ts     ← run_command tool
 │       ├── searchFiles.ts    ← search_files tool
-│       ├── webSearch.ts      ← web_search tool (Brave / Tavily)
+│       ├── webSearch.ts      ← web_search tool (LLM-powered; uses active model via CLIC_MODEL)
 │       ├── githubExtractor.ts← github tool (profile, streak, repos)
 │       └── listModelfromOpenAI.ts ← fetchAvailableModelOptions() startup helper (not in tool registry)
 ├── roles based Workflow/     ← Built-in role/persona files (auto-discovered)
@@ -253,9 +257,9 @@ flowchart TD
 
 </div>
 
-**Key design**: The `openai` SDK's native streaming + function calling handles structured tool calls — no manual JSON parsing or `done` flag needed. When the LLM emits multiple tool calls in a single response, they are executed **concurrently** via `Promise.all` — each tool runs at the same time, results are collected, then pushed back into context together. The absence of further function calls naturally signals when the agent is finished.
+**Key design**: The `openai` SDK's native streaming + function calling handles structured tool calls — no manual JSON parsing or `done` flag needed. When the LLM emits multiple tool calls in a single response, the user is prompted **once**: "Run all N tools in parallel?" — answering `y` executes them concurrently via `Promise.all`; answering `n` runs them one-by-one with individual confirms. A single tool call skips the prompt and runs directly. All API calls are wrapped in `withRetry()` for automatic exponential-backoff retry on transient errors.
 
-**Parallel tool execution**: Independent tool calls in the same LLM response (e.g. `read_file` + `web_search`) run simultaneously. Dependent calls are handled naturally by the loop — the LLM issues them across separate turns, each turn waiting for all results before the next API call.
+**Parallel tool execution**: Controlled by a single user confirmation per batch — "Run all N tools in parallel?" When parallel, individual per-tool confirms are auto-approved to avoid garbled output. When sequential, each tool goes through its own confirm. The LLM issues dependent calls across separate turns naturally.
 
 **Step limit**: Max 15 steps per user turn (configurable via `--max-steps`).
 
@@ -305,7 +309,7 @@ Registered tools:
 | `list_directory` | `listDir.ts` | List directory contents |
 | `run_command` | `runCommand.ts` | Execute a shell command |
 | `search_files` | `searchFiles.ts` | Glob-based file search |
-| `web_search` | `webSearch.ts` | Web search via Brave or Tavily |
+| `web_search` | `webSearch.ts` | Web search — routes query to the active LLM via a fresh OpenAI client call using `CLIC_MODEL`; no external search API required |
 | `github` | `githubExtractor.ts` | GitHub profile, streak, and repos |
 
 > `list_models` (`listModelfromOpenAI.ts`) is a startup-only helper — it powers the interactive model picker but is **not** registered in the LLM tool registry.
@@ -314,20 +318,21 @@ Registered tools:
 
 | Module | Purpose |
 |---|---|
-| **`index.ts`** | CLI parsing, setup wizard, live model picker, REPL loop. Passes extended `CommandContext` (with `callLLM`, `systemPrompt`, `sessionId`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
-| **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming, executes all tool calls in a single LLM response **in parallel** via `Promise.all`, feeds results back, loops until done or max steps. Accepts an optional `AbortSignal` (`AgentOptions.signal`) to support mid-run cancellation. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
-| **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Accepts an optional `AbortSignal` passed through to the SDK's `create()` call. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
-| **`knowledgeGraph.ts`** | In-memory graph with `addNode()` / `addEdge()` / query helpers (`getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`). Persisted to `token_graph.json` |
+| **`index.ts`** | CLI parsing, setup wizard, live model picker (`fetchAvailableModelOptions`), REPL loop. Passes extended `CommandContext` (with `callLLM`, `systemPrompt`, `sessionId`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
+| **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming, truncates tool output at 12 000 chars. When >1 tool call arrives, shows a queue preview and asks "parallel or sequential?" — parallel uses `Promise.all` with auto-approved per-tool confirms; sequential runs each with its own confirm. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
+| **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Wraps the API call in `withRetry()` (exponential backoff on 429/5xx, up to 4 attempts). Accepts an optional `AbortSignal` passed through to the SDK's `create()` call. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
+| **`knowledgeGraph.ts`** | In-memory graph with `addNode()` / `addEdge()` / query helpers (`getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`, `getSessionTokensByModel`, `getGlobalTokensByModel`). Persisted to `token_graph.json` |
+| **`pricing.ts`** | Model pricing registry — `loadPricing()` (called at startup), `getCost(model, promptTokens, completionTokens)`, `formatCost(usd)`, `isPricingLoaded()`. Used by `/tokens` to compute estimated USD spend |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional knowledge base |
-| **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `pushMessage()`, `getMessages()`, `clearMessages()`, `loadHistory()`, `saveHistory()`, `trimToLastUserMessage()` |
-| **`config.ts`** | Loads `.env`, exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`), loads KB files |
+| **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory()`, `saveHistory()`, `trimToLastUserMessage()` |
+| **`config.ts`** | Loads `.env` via dotenv; exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`), `AppConfig` interface, and `loadKnowledgeBase()` |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
 | **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `actionLabel()` |
 | **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
-| **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()` + `slashCompleter()` |
+| **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
 | **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
-| **`tools/helpers.ts`** | Shared utility: `resolvePath()` (handles `~` expansion + `path.resolve`) |
-| **`tools/index.ts`** | Registry: imports all tools, builds lookup map, exports `getToolDefinitions()` + `executeTool()` |
+| **`tools/helpers.ts`** | Shared utility: `resolvePath()` — handles `~` expansion and `path.resolve` |
+| **`tools/index.ts`** | Registry: imports all tools, builds lookup map, exports `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
 
 ---
 
@@ -359,11 +364,6 @@ API_KEY=sk-...
 
 # Optional: point at any OpenAI-compatible endpoint
 BASE_URL=https://api.openai.com/v1
-
-# Optional: for web search
-BRAVE_API_KEY=BSA...
-# OR
-TAVILY_API_KEY=tvly-...
 ```
 
 If you don't set `API_KEY` in `.env`, the setup wizard will prompt you interactively.
@@ -717,10 +717,92 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 |---|---|---|
 | `API_KEY` | Yes* | Your OpenAI or compatible API key (prompted interactively if missing) |
 | `BASE_URL` | No | OpenAI-compatible endpoint base URL (default: `https://api.openai.com/v1`) |
-| `BRAVE_API_KEY` | No | Brave Search API key (for `web_search` tool) |
-| `TAVILY_API_KEY` | No | Tavily API key (alternative to Brave for `web_search`) |
 | `AGENT_HISTORY_FILE` | No | Custom path for chat history (default: `chat_history.json`) |
 | `AGENT_TOKEN_GRAPH_FILE` | No | Custom path for token Knowledge Graph (default: `token_graph.json`) |
+
+---
+
+## Claude Code Integration
+
+CLIC ships a set of **Claude Code slash commands** and **skills** under `.claude/` that let Claude Code work on this repo more effectively — running the app, reviewing code, documenting features, and keeping configuration in sync.
+
+### Claude Commands
+
+Slash commands are stored in [.claude/commands/](.claude/commands/) and are invoked inside a Claude Code session with `/command-name`. Each command is a markdown prompt file that is injected as instructions when you run it.
+
+| Command | Invoke | What it does |
+|---|---|---|
+| **`run`** | `/run` | Run CLIC with `pnpm dev` (or `pnpm build && pnpm start` for production). Documents all CLI flags and reports what was observed in the terminal output. |
+| **`verify`** | `/verify` | End-to-end smoke test after a code change — runs CLIC in single-turn mode, checks that tool calls complete, confirms `token_graph.json` is updated, and reports pass/fail. |
+| **`code-review`** | `/code-review` | Reviews the current `git diff` for correctness bugs and simplification opportunities across all key files (`agent.ts`, `openai.ts`, `tools/`, `commands/`, `safety.ts`, `memory.ts`). |
+| **`security-review`** | `/security-review` | Audits pending changes for security issues — command injection in `runCommand.ts`, path traversal in file tools, API key exposure in logs, prompt injection via `readFile`, and safety bypass patterns in `safety.ts`. |
+| **`feature-review-for-specific`** | `/feature-review-for-specific <feature>` | Deep review of a named feature — reads every relevant file, then scores it across correctness, types, loop integration, safety, edge cases, and output. Reports findings by severity with file:line references. |
+| **`clic-features-doc`** | `/clic-features-doc <feature-name>` | Explores the codebase and writes (or updates) a complete feature doc to `docs/features/<feature-name>.md` — covering architecture, data flow, key types, a core code breakdown with annotated source, workflow, configuration, edge cases, example usage, and related features. |
+| **`update-context-for-future`** | `/update-context-for-future` | Scans the codebase for drift since the last doc update and rewrites `README.md` + `CLAUDE.md` to match the current source — key files, registered tools/commands, exported functions, env vars, version number. |
+| **`claude-api`** | `/claude-api` | Looks up the Claude / Anthropic API reference for the current task — model IDs, tool-use schemas, streaming delta shapes, token counting fields, pricing. |
+| **`update-config`** | `/update-config` | Reads and merges changes into `.claude/settings.json` — adding allowed Bash patterns, hooks, or environment variables. Never overwrites the file wholesale. |
+| **`fewer-permission-prompts`** | `/fewer-permission-prompts` | Scans this project's common dev-loop commands and adds precise `Bash(...)` / `Read(...)` allow rules to `.claude/settings.json` to reduce repetitive permission prompts. |
+
+#### Usage examples
+
+```
+# In a Claude Code session:
+/run
+/verify
+/code-review
+/security-review
+/feature-review-for-specific parallel-tool-execution
+/clic-features-doc api-retry
+/update-context-for-future
+/claude-api streaming tool_calls delta format
+/update-config add pnpm lint to allowed commands
+/fewer-permission-prompts
+```
+
+> All commands read from source before acting — they never guess or use stale assumptions. Pass `$ARGUMENTS` after the command name where shown to scope the output.
+
+---
+
+### Claude Skills
+
+Skills live in [.claude/skills/](.claude/skills/) and provide reusable, stateful capabilities — unlike one-shot commands, a skill can launch a process, interact with it, and report back.
+
+#### `run-clic` skill
+
+The `run-clic` skill wraps CLIC in a **tmux session** via a Node.js driver script, solving the core problem that `@clack/prompts` requires a real TTY — you cannot run `pnpm dev` from a backgrounded shell command. The driver provides a programmable interface for Claude Code subagents to launch, interact with, and observe the running CLIC instance.
+
+**Prerequisite:** `brew install tmux`
+
+**Driver commands** (`node .claude/skills/run-clic/driver.mjs <command>`):
+
+| Command | What it does |
+|---|---|
+| `single <prompt>` | Full single-turn run — launches CLIC, selects the first model, sends the prompt, waits for `✔ Task complete`, prints full output, exits |
+| `launch [model]` | Start an interactive REPL session in the background tmux session `clic-driver` |
+| `send <text>` | Send text + Enter to the running REPL |
+| `slash <cmd>` | Send a slash command (e.g. `/status`, `/tokens`) and print the pane output |
+| `capture` | Print current tmux pane contents |
+| `wait <marker>` | Poll until a marker string appears in the pane (30 s timeout) |
+| `quit` | Send `/exit` to save history cleanly, then kill the tmux session |
+| `kill` | Force-kill the tmux session without saving |
+
+**Example — verify a code change end-to-end:**
+
+```bash
+# Single-turn smoke test (most common)
+node .claude/skills/run-clic/driver.mjs single "list the TypeScript files in src/"
+
+# Interactive session — send a slash command
+node .claude/skills/run-clic/driver.mjs launch
+node .claude/skills/run-clic/driver.mjs slash /tokens
+node .claude/skills/run-clic/driver.mjs quit
+```
+
+**Key gotchas the skill documents:**
+
+- `--model gpt-4o` does **not** skip the model picker — `gpt-4o` is `DEFAULT_MODEL`, so `src/index.ts` treats it as unset and shows the picker anyway. Pass a different model name or let the driver press Enter on the highlighted default.
+- Paths with spaces in the project root are handled by the driver passing paths through tmux environment variables (`CLIC_ROOT`, `CLIC_TSX`) rather than embedding them in shell strings.
+- `chat_history.json` accumulates across driver runs — run `echo "[]" > chat_history.json` to reset context before a clean test.
 
 ---
 
@@ -735,8 +817,8 @@ CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini, then m
 | Hardcoded Gemini endpoint | SAP AI Core Orchestration | Any OpenAI-compatible endpoint |
 | `eval` for shell commands | `execa` with timeout | `execa` with timeout |
 | No token tracking | No token tracking | Knowledge Graph — actual token counts per session |
-| Monolithic single file | 18-file modular architecture | 22-file modular architecture + KG + 2 new tools |
-| Google Search grounding | Brave / Tavily web search | Brave / Tavily + GitHub + list_models |
+| Monolithic single file | 18-file modular architecture | 23-file modular architecture + KG + pricing + 2 new tools |
+| Google Search grounding | Brave / Tavily web search | LLM-powered web_search + GitHub + list_models + pricing + retry |
 
 ---
 
