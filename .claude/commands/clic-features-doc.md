@@ -34,10 +34,25 @@ Every section must be filled from real code — no placeholder text, no invented
 
 ---
 
-```markdown
+````markdown
 # <Feature Name>
 
 > One-sentence summary of what this feature does and why it exists.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+  - [Files involved](#files-involved)
+  - [Architecture flow diagram](#architecture-flow-diagram)
+  - [Data flow](#data-flow)
+  - [Key types / interfaces](#key-types--interfaces)
+- [Core code breakdown](#core-code-breakdown)
+- [Workflow](#workflow)
+- [Configuration & flags](#configuration--flags)
+- [Edge cases & safety](#edge-cases--safety)
+- [Example usage](#example-usage)
+- [Related features](#related-features)
 
 ## Overview
 
@@ -50,6 +65,26 @@ Every section must be filled from real code — no placeholder text, no invented
 | File | Role in this feature |
 |---|---|
 | `src/...` | ... |
+
+### Architecture flow diagram
+
+Choose the Mermaid diagram type that best fits the feature:
+
+- **`flowchart TD`** — for call chains and request/response flows (most common)
+- **`sequenceDiagram`** — for multi-party async interactions (e.g. LLM ↔ tool ↔ user)
+- **`stateDiagram-v2`** — for state machines or lifecycle flows (e.g. agent loop states)
+
+Example shape for a call-chain feature:
+
+```mermaid
+flowchart TD
+    A[User Input] --> B[Entry point\nsrc/...]
+    B --> C[Core logic\nsrc/...]
+    C --> D[Side effect\ne.g. KG update]
+    C --> E[Output / return\ne.g. ToolResult]
+```
+
+Draw the actual diagram for this feature — replace every placeholder node with the real function/module name and source file. Pick the diagram type that most clearly represents how data or control flows through the system.
 
 ### Data flow
 
@@ -105,7 +140,7 @@ Show a realistic terminal session (or code snippet) demonstrating the feature en
 ## Related features
 
 Bullet list of other features/files this feature depends on or interacts with, with one-line explanations.
-```
+````
 
 ---
 

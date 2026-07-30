@@ -71,7 +71,7 @@ export async function runAgentTurn(
   messages: ChatMessage[],
   systemPrompt: string,
   options: AgentOptions,
-): Promise<void> {
+): Promise<{ promptTokens: number }> {
   let steps = 0;
 
   // Accumulated token usage and tool names across all steps in this turn
@@ -84,7 +84,7 @@ export async function runAgentTurn(
     // ── Check for abort before each step ────────────────────────────────────
     if (options.signal?.aborted) {
       console.log(chalk.yellow('\n  ⚡ Interrupted.'));
-      return;
+        return { promptTokens: cumulativeUsage.promptTokens };
     }
 
     if (steps > 1) {
@@ -117,12 +117,12 @@ export async function runAgentTurn(
       spinner.stop();
       if (options.signal?.aborted) {
         console.log(chalk.yellow('\n  ⚡ Interrupted.'));
-        return;
+        return { promptTokens: cumulativeUsage.promptTokens };
       }
       const msg = err instanceof Error ? err.message : String(err);
       console.log();
       console.log(chalk.red(`  ❌ API Error: ${msg}`));
-      return;
+      return { promptTokens: cumulativeUsage.promptTokens };
     }
 
     // ── Debug: show raw response ─────────────────────────────────────────────
@@ -275,4 +275,6 @@ export async function runAgentTurn(
       addEdge({ from: turnId, to: toolId, type: 'CALLED_TOOL' });
     }
   }
+
+  return { promptTokens: cumulativeUsage.promptTokens };
 }

@@ -11,7 +11,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
-import { printBanner, printSeparator, promptPrintSeperator } from './ui.js';
+import { printBanner, printSeparator, promptPrintSeperator, printContextBar } from './ui.js';
 import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
@@ -25,6 +25,10 @@ import { executeCommand, isSlashedCommand, slashCompleter, type CommandContext }
 import ora from 'ora';
 // Pricing for the AI Models
 import { loadPricing } from './pricing.js';
+// Auto Context Window Guard + Auto-Compact
+import { getContextLimit, CONTEXT_GUARD_THRESHOLD, HISTORY_LOAD_LIMIT } from './config.js';
+import { runCompact } from './commands/compact.js';
+
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -40,6 +44,7 @@ const program = new Command()
   .option('--model <model>', 'LLM model to use', DEFAULT_MODEL)
   .option('--max-steps <n>', 'Max agent steps per turn', String(DEFAULT_MAX_STEPS))
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
+  .option('--full-history', 'Load entire chat history without a message limit')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
   .action(main);
 
@@ -50,6 +55,7 @@ async function main(prompt: string | undefined, opts: {
   model: string;
   maxSteps: string;
   yolo?: boolean;
+  fullHistory?: boolean;
 }) {
   let model = opts.model;
   const maxSteps = parseInt(opts.maxSteps, 10) || DEFAULT_MAX_STEPS;
@@ -175,7 +181,7 @@ async function main(prompt: string | undefined, opts: {
   let client = createClient(model);
 
   // ── Load or initialise history + Knowledge Graph ──────────────────────────
-  await loadHistory();
+ await loadHistory(opts.fullHistory ? undefined : HISTORY_LOAD_LIMIT);
   await loadGraph(TOKEN_GRAPH_FILE);
   const sessionId = `session_${Date.now()}`;
   addNode({ id: sessionId, type: 'session', properties: { model, role: kbFile ?? null }, createdAt: new Date().toISOString() });
@@ -318,9 +324,21 @@ async function main(prompt: string | undefined, opts: {
         agentRunning = true;
         process.once('SIGINT', retryOnSIGINT);
         try {
-          await runAgentTurn(client, getMessages(), systemPrompt, {
+          const retryResult = await runAgentTurn(client, getMessages(), systemPrompt, {
             model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: retryAc.signal,
           });
+
+          // Context bar + auto-compact guard
+          const contextLimit = getContextLimit();
+          const rawTokens = retryResult.promptTokens > 0
+            ? retryResult.promptTokens
+            : Math.ceil(getMessages().reduce((sum, m) =>
+                sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0) / 4);
+          printContextBar(rawTokens, contextLimit, CONTEXT_GUARD_THRESHOLD);
+          if (rawTokens > contextLimit * CONTEXT_GUARD_THRESHOLD) {
+            console.log(chalk.yellow(`  ⚠️  Auto-compacting...`));
+            await runCompact(callLLM, 'auto');
+          }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(chalk.red(`  ❌ Error during retry: ${msg}`));
@@ -328,11 +346,10 @@ async function main(prompt: string | undefined, opts: {
           agentRunning = false;
           process.removeListener('SIGINT', retryOnSIGINT);
         }
-        await saveHistory();
         await saveGraph(TOKEN_GRAPH_FILE);
         console.log();
       }
-
+      await saveHistory();
       continue;
     }
 
@@ -350,9 +367,22 @@ async function main(prompt: string | undefined, opts: {
     agentRunning = true;
     process.once('SIGINT', onSIGINT);
     try {
-      await runAgentTurn(client, getMessages(), systemPrompt, {
+      const turnResult = await runAgentTurn(client, getMessages(), systemPrompt, {
         model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: ac.signal,
       });
+
+      // Context bar + auto-compact guard
+      const contextLimit = getContextLimit();
+      const rawTokens = turnResult.promptTokens > 0
+        ? turnResult.promptTokens
+        : Math.ceil(getMessages().reduce((sum, m) =>
+            sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0) / 4);
+      printContextBar(rawTokens, contextLimit, CONTEXT_GUARD_THRESHOLD);
+      if (rawTokens > contextLimit * CONTEXT_GUARD_THRESHOLD) {
+        console.log(chalk.yellow(`  ⚠️  Auto-compacting...`));
+        await runCompact(callLLM, 'auto');
+        await saveHistory();
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log();
