@@ -42,16 +42,19 @@ export function messageCount(): number {
   return messages.length;
 }
 
-export async function loadHistory(): Promise<void> {
+export async function loadHistory(limit?: number): Promise<void> {
   try {
     const data = await fs.readFile(HISTORY_FILE, 'utf-8');
-    messages = JSON.parse(data);
-    console.log(chalk.cyan(`  📂 Loaded ${messages.length} messages from ${HISTORY_FILE}`));
+    const all: ChatMessage[] = JSON.parse(data);
+    messages = limit && all.length > limit ? all.slice(-limit) : all;
+    const note = limit && all.length > limit ? ` (last ${limit} of ${all.length})` : '';
+    console.log(chalk.cyan(`  📂 Loaded ${messages.length} messages from ${HISTORY_FILE}${note}`));
   } catch {
     messages = [];
     console.log(chalk.cyan('  🆕 Starting fresh conversation.'));
   }
 }
+
 
 export async function saveHistory(): Promise<void> {
   try {

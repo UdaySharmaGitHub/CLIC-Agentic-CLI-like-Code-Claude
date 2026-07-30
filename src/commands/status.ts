@@ -8,6 +8,7 @@
 import { messageCount } from "../memory.js";
 import type { SlashCommand } from "./types.js";
 import { printStatus } from "../ui.js";
+import { getContextLimit } from "../config.js";
 
 export const command:SlashCommand = {
     name:"/status",
@@ -19,6 +20,7 @@ export const command:SlashCommand = {
         showRaw:ctx.showRaw,
         kbFile:ctx.kbFile,
         model:ctx.model,
+        contextLimit: getContextLimit(),
        });
        return {type:'continue'};
     },
