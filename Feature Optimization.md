@@ -263,7 +263,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 5. Auto Context Window Guard + Auto-Compact
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **Files:** `src/memory.ts`, `src/agent.ts`
 - **Problem:** History grows unbounded. At startup the entire `chat_history.json` is loaded regardless of size. A long session silently hits the model's context limit, causing truncation or API errors.
 - **Fix (two parts):**
@@ -281,7 +281,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 6. Diff Display for File Writes
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **Files:** `src/tools/writeFile.ts`, `src/tools/modifyFile.ts`
 - **Problem:** When the agent writes or modifies a file, the user sees only a confirmation prompt — not what changed. This is the biggest UX gap vs. Claude Code.
 - **Fix:** Before writing, read the existing file (if any), compute a unified diff, and render it with `chalk.red`/`chalk.green` for `+`/`-` lines:
@@ -437,8 +437,8 @@ A deprecation notice is printed when `--yolo` is used:
 | 2 | SIGINT / Ctrl+C Handler | P1 | ✅ Implemented |
 | 3 | Tool Output Truncation | P1 | ✅ Implemented |
 | 4 | API Retry + Backoff | P1 | ✅ Implemented |
-| 5 | Auto Context Guard + Auto-Compact | P2 | ⬜ Not started |
-| 6 | Diff Display for File Writes | P2 | ⬜ Not started |
+| 5 | Auto Context Guard + Auto-Compact | P2 | ✅ Implemented |
+| 6 | Diff Display for File Writes | P2 | ✅ Implemented |
 | 7 | Auto Project Context Injection | P2 | ⬜ Not started |
 | 8 | Multiline Input Support | P3 | ⬜ Not started |
 | 9 | Cost Estimation in /tokens | P1 | ⬜ Not started |
@@ -829,8 +829,8 @@ A deprecation notice is printed when `--yolo` is used:
 | 2 | SIGINT / Ctrl+C Handler | Reliability | P1 | ✅ Implemented |
 | 3 | Tool Output Truncation | Reliability | P1 | ✅ Implemented |
 | 4 | API Retry + Backoff | Reliability | P1 | ✅ Implemented |
-| 5 | Auto Context Guard + Auto-Compact | Memory | P2 | ⬜ started |
-| 6 | Diff Display for File Writes | UX | P2 | ⬜ Not started |
+| 5 | Auto Context Guard + Auto-Compact | Memory | P2 | ✅ Implemented |
+| 6 | Diff Display for File Writes | UX | P2 | ✅ Implemented |
 | 7 | Auto Project Context Injection | UX | P2 | ⬜ Not started |
 | 8 | Multiline Input Support | UX | P3 | ⬜ Not started |
 | 9 | Cost Estimation in /tokens | UX | P1 | ✅ Implemented |

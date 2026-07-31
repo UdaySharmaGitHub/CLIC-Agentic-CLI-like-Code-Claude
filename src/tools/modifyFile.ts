@@ -4,13 +4,14 @@
 
 import fs from 'node:fs/promises';
 import chalk from 'chalk';
+import { createPatch } from 'diff';
 import { isPathSafe } from '../safety.js';
 import {
   printToolHeader, printToolSuccess, printToolError,
-  printToolBlocked, printRejected, printDimOutput, printSeparator,
+  printToolBlocked, printRejected, printSeparator,
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
-import { resolvePath } from './helpers.js';
+import { resolvePath, renderDiff } from './helpers.js';
 
 export const definition: ToolDefinition = {
   name: 'modify_file',
@@ -59,12 +60,10 @@ export async function execute(
   }
 
   // Show diff preview
-  console.log(`  ${chalk.red('  − Find:')}`);
-  printDimOutput(input.find.split('\n').slice(0, 5));
-  console.log();
-  console.log(`  ${chalk.green('  + Replace:')}`);
-  printDimOutput(input.replace.split('\n').slice(0, 5));
-  console.log();
+  const idx = content.indexOf(input.find);
+  const patched = content.substring(0, idx) + input.replace + content.substring(idx + input.find.length);
+  const patch = createPatch(filepath, content, patched);
+  renderDiff(patch);
 
   if (!await confirm(`Approve this change to '${filepath}'?`)) {
     printRejected();
@@ -77,10 +76,7 @@ export async function execute(
     await fs.writeFile(`${filepath}.bak`, content, 'utf-8');
     console.log(`  ${chalk.dim(`  Backup saved: ${filepath}.bak`)}`);
 
-    // Safe single-occurrence replacement (no regex special chars)
-    const idx = content.indexOf(input.find);
-    const newContent = content.substring(0, idx) + input.replace + content.substring(idx + input.find.length);
-    await fs.writeFile(filepath, newContent, 'utf-8');
+    await fs.writeFile(filepath, patched, 'utf-8');
 
     printToolSuccess(`File modified: ${filepath}`);
     printSeparator();

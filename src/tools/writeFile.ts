@@ -5,13 +5,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
+import { createPatch } from 'diff';
 import { isPathSafe } from '../safety.js';
 import {
   printToolHeader, printToolSuccess, printToolError,
-  printToolBlocked, printRejected, printDimOutput, printSeparator,
+  printToolBlocked, printRejected, printSeparator,
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
-import { resolvePath } from './helpers.js';
+import { resolvePath, renderDiff } from './helpers.js';
 
 export const definition: ToolDefinition = {
   name: 'write_file',
@@ -46,14 +47,13 @@ export async function execute(
     console.log(`  ${chalk.red('  ⚠️  WARNING: File already exists — will be OVERWRITTEN')}`);
   }
 
-  const lines = input.content.split('\n');
-  console.log(`  ${chalk.dim('  ── Content Preview (first 20 lines) ──────────────')}`);
-  printDimOutput(lines.slice(0, 20).map(l => `│  ${l}`));
-  if (lines.length > 20) {
-    console.log(`  ${chalk.dim(`  ... (${lines.length} lines total, showing first 20)`)}`);
+  let oldContent = '';
+  if (exists) {
+    oldContent = await fs.readFile(filepath, 'utf-8');
   }
-  console.log(`  ${chalk.dim('  ──────────────────────────────────────────────────')}`);
-  console.log();
+
+  const patch = createPatch(filepath, oldContent, input.content + '\n');
+  renderDiff(patch);
 
   if (!await confirm(`Approve write to '${filepath}'?`)) {
     printRejected();
@@ -63,6 +63,7 @@ export async function execute(
 
   try {
     await fs.mkdir(path.dirname(filepath), { recursive: true });
+    const lines = input.content.split('\n');
     await fs.writeFile(filepath, input.content + '\n', 'utf-8');
     printToolSuccess(`File written: ${filepath} (${lines.length} lines)`);
     printSeparator();
