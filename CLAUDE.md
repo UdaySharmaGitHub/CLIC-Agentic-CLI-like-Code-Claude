@@ -12,6 +12,7 @@ pnpm start                      # Run compiled dist/index.js
 # CLI flags (dev or built)
 pnpm dev -- --model gpt-4o --max-steps 10 --yolo
 pnpm dev -- --kb "roles based Workflow/Gen_AI_Engineer.md"
+pnpm dev -- --full-history      # Load entire chat history (no message limit)
 pnpm dev -- "single-turn prompt here"   # Non-interactive one-shot mode
 ```
 
@@ -44,20 +45,20 @@ User input (REPL or single-turn)
 
 | File | Role |
 |---|---|
-| `src/index.ts` | Entry point: CLI parsing (`commander`), setup wizard (`@clack/prompts`), live model picker, REPL loop |
-| `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached; when >1 tool call arrives, asks user "parallel or sequential?" — parallel runs all via `Promise.all`, sequential runs one-by-one with individual confirms; supports `AbortSignal` for mid-run cancellation; records each turn in KG |
+| `src/index.ts` | Entry point: CLI parsing (`commander`), setup wizard (`@clack/prompts`), live model picker, REPL loop, context-window guard (auto-compact at 80% usage) |
+| `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached; when >1 tool call arrives, asks user "parallel or sequential?" — parallel runs all via `Promise.all`, sequential runs one-by-one with individual confirms; supports `AbortSignal` for mid-run cancellation; records each turn in KG; returns `promptTokens` for context-bar rendering |
 | `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks, wraps API call in `withRetry()` (exponential backoff on 429/5xx), accepts optional `AbortSignal`, returns `LLMResponse` with `TokenUsage` |
 | `src/memory.ts` | In-memory `ChatMessage[]` store (OpenAI message format) + JSON persistence to `chat_history.json`; exports `pushMessage`, `getMessages`, `popMessage`, `clearMessages`, `messageCount`, `loadHistory`, `saveHistory`, `trimToLastUserMessage` |
 | `src/knowledgeGraph.ts` | Token-tracking Knowledge Graph (session → turn → model/tools/usage); persisted to `token_graph.json`; exports `addNode`, `addEdge`, `getGraph`, `getNodeById`, `getNeighbors`, `getAllSessionNodes`, `getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`, `getSessionTokensByModel`, `getGlobalTokensByModel`, `loadGraph`, `saveGraph` |
-| `src/pricing.ts` | Model pricing data loader; exports `loadPricing`, `getCost`, `formatCost`, `isPricingLoaded` — used by `/tokens` to show estimated USD cost per session and all-time |
+| `src/pricing.ts` | Real-time model pricing via LiteLLM proxy `/model/info`; exports `loadPricing`, `getCost`, `getPricing`, `formatCost`, `isPricingLoaded` — used by `/tokens` to show estimated USD cost per session and all-time |
 | `src/prompts.ts` | Builds the system prompt with live system context (OS, user, CWD, date), optionally injecting a knowledge base block |
-| `src/config.ts` | Loads `.env` via dotenv; exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`), `AppConfig` interface, and `loadKnowledgeBase()` helper |
-| `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `actionLabel` |
+| `src/config.ts` | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
+| `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel, diff view, context progress bar; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `actionLabel` |
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
 | `src/tools/types.ts` | Shared tool types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
-| `src/tools/helpers.ts` | Shared utility: `resolvePath()` (handles `~` expansion + `path.resolve`) |
-| `src/tools/listModelfromOpenAI.ts` | `fetchAvailableModelOptions()` startup helper + `list_models` execute function; **not** registered in tool registry |
+| `src/tools/helpers.ts` | Shared utilities: `resolvePath()` (handles `~` expansion + `path.resolve`), `renderDiff()` (Claude Code-style full-width diff renderer used by `write_file` and `modify_file`) |
+| `src/tools/listModelfromOpenAI.ts` | `fetchAvailableModelOptions()` startup helper; **not** registered in tool registry |
 | `src/commands/index.ts` | Command registry — maps slash command name → module, exposes `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
 | `src/commands/types.ts` | Shared types: `SlashCommand`, `CommandContext` (includes `sessionId`, `callLLM`), `CommandAction` |
 
@@ -70,6 +71,8 @@ Each tool is a self-contained module that exports:
 Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`, `github`.
 
 Note: `list_models` is implemented in `src/tools/listModelfromOpenAI.ts` but is **not** registered in the tool registry — it is only used as a startup helper via `fetchAvailableModelOptions()`.
+
+**`write_file` and `modify_file` diff display:** both tools render a Claude Code-style full-width unified diff (via `renderDiff()` in `src/tools/helpers.ts`, using the `diff` npm package) before asking for confirmation. `modify_file` also creates a `.bak` backup before patching.
 
 **`web_search` implementation note:** despite the name, this tool does **not** call an external search API (Brave/Tavily). It routes the query to the active LLM via a fresh OpenAI client call using `process.env.CLIC_MODEL`. It reads `CLIC_MODEL`, `API_KEY`, and `BASE_URL` from the environment at call time.
 
@@ -87,6 +90,8 @@ Each slash command is a self-contained module that exports `command: SlashComman
 `CommandAction` can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload). When `model` changes via `update`, `index.ts` recreates the OpenAI client.
 
 Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`.
+
+**`/compact` internals:** the core logic is extracted into `runCompact(callLLM, mode)` (exported from `src/commands/compact.ts`), which is also called directly by `index.ts` for automatic context-window compaction.
 
 **To add a new command:** create `src/commands/myCommand.ts` exporting `command: SlashCommand`, then import and add it to the `commands` array in `src/commands/index.ts`.
 
@@ -125,6 +130,8 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - Chat history auto-saves to `chat_history.json` after every turn and on `/exit`.
 - Token graph auto-saves to `token_graph.json` after every turn and on `/exit`.
 - `--yolo` flag skips all `confirm()` prompts in both REPL and single-turn modes.
+- `--full-history` flag loads the entire `chat_history.json` without the default message-count cap (default: last `HISTORY_LOAD_LIMIT = 10` messages).
+- **Context Window Guard:** after every agent turn (and after `/retry`), `index.ts` renders a `printContextBar()` showing context fill %. When prompt tokens exceed `CONTEXT_GUARD_THRESHOLD` (80%) of `getContextLimit()` for the active model, `runCompact()` is called automatically (`mode: 'auto'`).
 - `AgentOptions.signal?: AbortSignal` — pass an `AbortController` signal to cancel a running agent turn mid-stream.
 - `streamMessage` also accepts an optional `AbortSignal` and passes it to the OpenAI SDK `create()` call.
 - `process.env.CLIC_MODEL` is kept in sync with the active model so tools can read it (e.g. `web_search`).
@@ -141,9 +148,3 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 | `.env` | Local environment variables (API keys) |
 | `dist/` | Compiled production output |
 | `*.bak` | Backup files created by the `modify_file` tool |
-
-### New source file (not in key files table above)
-
-| File | Description |
-|---|---|
-| `src/pricing.ts` | Model pricing data — `loadPricing()`, `getCost(model, promptTokens, completionTokens)`, `formatCost(usd)`, `isPricingLoaded()` |

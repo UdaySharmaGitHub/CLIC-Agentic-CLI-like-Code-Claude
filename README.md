@@ -1,6 +1,6 @@
 # CLIC — Command Line Intelligence Companion
 
-> **v4.3** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, user-controlled parallel tool execution, abort support, API retry with exponential backoff, cost estimation, and a modular tool system.
+> **v4.3.0** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, user-controlled parallel tool execution, abort support, API retry with exponential backoff, cost estimation, context-window guard with auto-compact, and a modular tool system.
 
 
 CLIC is a terminal-based Agentic CLI that can read/write files, run shell commands, search the web, and chain multiple steps automatically to complete complex tasks — all with human approval before every action.
@@ -60,6 +60,8 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | 📚 Knowledge Base | Load role/behavior/persona from a Markdown file |
 | 🧠 Persistent Memory | Chat history saved to `chat_history.json` — agent remembers across sessions |
 | 🛡️ Safety Layer | Blocked commands + protected paths + human approval |
+| 🪟 Context Guard | Monitors context fill % after every turn; auto-compacts at 80% to prevent cutoff |
+| 🔍 Diff Preview | `write_file` and `modify_file` render a full-width unified diff before confirmation |
 
 ---
 
@@ -68,10 +70,11 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | Package | Role |
 |---|---|
 | **`openai`** | OpenAI-compatible API client with streaming + function calling |
-| **`commander`** | CLI argument parsing (`--model`, `--kb`, `--yolo`, etc.) |
+| **`commander`** | CLI argument parsing (`--model`, `--kb`, `--yolo`, `--full-history`, etc.) |
 | **`@clack/prompts`** | Interactive setup wizard (API key, model picker, KB file) |
 | **`execa`** | Safe subprocess execution with timeout + error capture |
 | **`fast-glob`** | Glob-based file search |
+| **`diff`** | Unified diff generation for `write_file` / `modify_file` preview |
 | **`chalk`** | Colored terminal output |
 | **`ora`** | Spinner while waiting for LLM responses |
 | **`dotenv`** | Load `.env` config (API keys) |
@@ -85,16 +88,16 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 ```
 clic/
 ├── src/
-│   ├── index.ts              ← CLI entry point + REPL loop
+│   ├── index.ts              ← CLI entry point + REPL loop + context-window guard (auto-compact)
 │   ├── agent.ts              ← ReAct agentic loop (runAgentTurn) + parallel/sequential tool dispatch + KG recording
 │   ├── openai.ts             ← OpenAI SDK wrapper (createClient / streamMessage / withRetry / TokenUsage)
 │   ├── knowledgeGraph.ts     ← Token-tracking Knowledge Graph (persisted to token_graph.json)
-│   ├── pricing.ts            ← Model pricing data (getCost / formatCost / isPricingLoaded)
+│   ├── pricing.ts            ← Real-time model pricing via LiteLLM proxy (getCost / formatCost / isPricingLoaded)
 │   ├── prompts.ts            ← System prompt builder (buildSystemPrompt)
 │   ├── memory.ts             ← Chat history management (load/save/push/pop/clear/trim)
 │   ├── safety.ts             ← Blocked commands + protected paths
-│   ├── config.ts             ← Environment loading, constants, KB loader (loadKnowledgeBase)
-│   ├── ui.ts                 ← Banner, help, status, chalk formatters
+│   ├── config.ts             ← Env loading, constants, context limits, KB loader, getContextLimit()
+│   ├── ui.ts                 ← Banner, help, status, context bar, diff view, chalk formatters
 │   ├── commands/
 │   │   ├── index.ts          ← Command registry + router + tab completer
 │   │   ├── types.ts          ← Shared types (SlashCommand, CommandContext, CommandAction)
@@ -113,11 +116,11 @@ clic/
 │   └── tools/
 │       ├── index.ts          ← Tool registry + router
 │       ├── types.ts          ← Shared types (ConfirmFn, ToolResult, ToolDefinition)
-│       ├── helpers.ts        ← Shared helpers (resolvePath — ~ expansion + path.resolve)
+│       ├── helpers.ts        ← Shared helpers (resolvePath, renderDiff — unified diff renderer)
 │       ├── readFile.ts       ← read_file tool
-│       ├── writeFile.ts      ← write_file tool
+│       ├── writeFile.ts      ← write_file tool (with diff preview)
 │       ├── appendFile.ts     ← append_file tool
-│       ├── modifyFile.ts     ← modify_file tool
+│       ├── modifyFile.ts     ← modify_file tool (with diff preview + .bak backup)
 │       ├── listDir.ts        ← list_directory tool
 │       ├── runCommand.ts     ← run_command tool
 │       ├── searchFiles.ts    ← search_files tool
@@ -318,20 +321,20 @@ Registered tools:
 
 | Module | Purpose |
 |---|---|
-| **`index.ts`** | CLI parsing, setup wizard, live model picker (`fetchAvailableModelOptions`), REPL loop. Passes extended `CommandContext` (with `callLLM`, `systemPrompt`, `sessionId`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
-| **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming, truncates tool output at 12 000 chars. When >1 tool call arrives, shows a queue preview and asks "parallel or sequential?" — parallel uses `Promise.all` with auto-approved per-tool confirms; sequential runs each with its own confirm. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
+| **`index.ts`** | CLI parsing, setup wizard, live model picker, REPL loop, context-window guard (renders `printContextBar` + triggers `runCompact` at 80% fill). Passes extended `CommandContext` (with `callLLM`, `systemPrompt`, `sessionId`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
+| **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming. When >1 tool call arrives, shows a queue preview and asks "parallel or sequential?" — parallel uses `Promise.all` with auto-approved per-tool confirms; sequential runs each with its own confirm. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
 | **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Wraps the API call in `withRetry()` (exponential backoff on 429/5xx, up to 4 attempts). Accepts an optional `AbortSignal` passed through to the SDK's `create()` call. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
 | **`knowledgeGraph.ts`** | In-memory graph with `addNode()` / `addEdge()` / query helpers (`getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`, `getSessionTokensByModel`, `getGlobalTokensByModel`). Persisted to `token_graph.json` |
-| **`pricing.ts`** | Model pricing registry — `loadPricing()` (called at startup), `getCost(model, promptTokens, completionTokens)`, `formatCost(usd)`, `isPricingLoaded()`. Used by `/tokens` to compute estimated USD spend |
+| **`pricing.ts`** | Real-time pricing from LiteLLM proxy `/model/info` — `loadPricing()` (called at startup), `getCost()`, `getPricing()`, `formatCost()`, `isPricingLoaded()`. Used by `/tokens` to compute estimated USD spend |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional knowledge base |
-| **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory()`, `saveHistory()`, `trimToLastUserMessage()` |
-| **`config.ts`** | Loads `.env` via dotenv; exports constants (`DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`), `AppConfig` interface, and `loadKnowledgeBase()` |
+| **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory(limit?)`, `saveHistory()`, `trimToLastUserMessage()` |
+| **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
-| **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `actionLabel()` |
+| **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `printContextBar()`, `actionLabel()` |
 | **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
 | **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
 | **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
-| **`tools/helpers.ts`** | Shared utility: `resolvePath()` — handles `~` expansion and `path.resolve` |
+| **`tools/helpers.ts`** | Shared utilities: `resolvePath()` (handles `~` expansion + `path.resolve`), `renderDiff()` (full-width unified diff renderer using `diff` package) |
 | **`tools/index.ts`** | Registry: imports all tools, builds lookup map, exports `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
 
 ---
@@ -422,6 +425,7 @@ Runs the prompt, outputs the result, and exits.
 | `--kb <path>` | — | Path to a knowledge base / role file |
 | `--max-steps <n>` | `15` | Max agent steps per user turn |
 | `--yolo` | `false` | Auto-approve all actions (skip confirmations) |
+| `--full-history` | `false` | Load entire chat history (default: last 10 messages) |
 
 #### Available Models
 
@@ -602,6 +606,7 @@ Built-in roles available:
 | File | Persona |
 |---|---|
 | `AI_Engineer.md` | AI Engineer |
+| `Forward_Deployed_Engineer.md` | Forward Deployed Engineer |
 | `Gen_AI_Engineer.md` | Generative AI Engineer |
 | `genz_workflow.md` | Gen-Z Communication Style |
 | `Legal_Software_Advocate.md` | Legal Software Advocate |
@@ -719,6 +724,7 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 | `BASE_URL` | No | OpenAI-compatible endpoint base URL (default: `https://api.openai.com/v1`) |
 | `AGENT_HISTORY_FILE` | No | Custom path for chat history (default: `chat_history.json`) |
 | `AGENT_TOKEN_GRAPH_FILE` | No | Custom path for token Knowledge Graph (default: `token_graph.json`) |
+| `CLIC_MODEL` | No | Set automatically at startup to the active model; read by `web_search` and other tools at call time |
 
 ---
 
@@ -817,11 +823,17 @@ CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini, then m
 | Hardcoded Gemini endpoint | SAP AI Core Orchestration | Any OpenAI-compatible endpoint |
 | `eval` for shell commands | `execa` with timeout | `execa` with timeout |
 | No token tracking | No token tracking | Knowledge Graph — actual token counts per session |
-| Monolithic single file | 18-file modular architecture | 23-file modular architecture + KG + pricing + 2 new tools |
-| Google Search grounding | Brave / Tavily web search | LLM-powered web_search + GitHub + list_models + pricing + retry |
+| Monolithic single file | 18-file modular architecture | 37-file modular architecture + KG + pricing + context guard + diff preview |
+| Google Search grounding | Brave / Tavily web search | LLM-powered web_search + GitHub + pricing + retry + auto-compact |
 
 ---
 
 ## License
 
 MIT
+
+---
+
+## Owner
+
+**Uday Sharma** — [github.com/UdaySharmaGitHub](https://github.com/UdaySharmaGitHub)
