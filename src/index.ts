@@ -45,6 +45,7 @@ const program = new Command()
   .option('--max-steps <n>', 'Max agent steps per turn', String(DEFAULT_MAX_STEPS))
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
   .option('--full-history', 'Load entire chat history without a message limit')
+  .option('-p, --paste', 'Read prompt from stdin until EOF (Ctrl+D), then run as single-turn')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
   .action(main);
 
@@ -56,6 +57,7 @@ async function main(prompt: string | undefined, opts: {
   maxSteps: string;
   yolo?: boolean;
   fullHistory?: boolean;
+  paste?: boolean;          // ← add this
 }) {
   let model = opts.model;
   const maxSteps = parseInt(opts.maxSteps, 10) || DEFAULT_MAX_STEPS;
@@ -215,6 +217,16 @@ async function main(prompt: string | undefined, opts: {
     };
   };
 
+  // ── Paste mode (--paste / -p) ─────────────────────────────────────────────
+  if (opts.paste) {
+    const chunks: string[] = [];
+    process.stdin.setEncoding('utf8');
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk as string);
+    }
+    prompt = chunks.join('').trim();
+  }
+  
   // ── Single-turn mode ──────────────────────────────────────────────────────
   if (prompt) {
     const singleRl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -259,6 +271,53 @@ async function main(prompt: string | undefined, opts: {
     }
   }
 
+  // Multiline Prompt Feature 
+  async function askMultiline(initialPrompt: string): Promise<string> {
+
+  // Step A: Read the very first line normally
+  const firstLine = await ask(initialPrompt);
+
+  // Slash commands are never multiline — dispatch immediately
+  if (firstLine.trim().startsWith('/')) {
+    return firstLine;
+  }
+
+  // Step B: Count backticks to know if we're inside a code block
+  const backtickCount = (firstLine.match(/```/g) ?? []).length;
+  const insideCodeBlock = backtickCount % 2 !== 0; // odd = block is open
+
+  // Step C: If no continuation needed, return immediately (normal behavior)
+  const hasContinuation = firstLine.endsWith('\\') || insideCodeBlock;
+  if (!hasContinuation) {
+    return firstLine;
+  }
+
+  // Step D: We ARE in multiline mode — accumulate lines
+  const lines: string[] = [firstLine.replace(/\\$/, '')]; // strip trailing \
+  let inBlock = insideCodeBlock;
+
+  while (true) {
+    const line = await ask(chalk.dim('  ... '));
+
+    // Blank line = user wants to submit (only outside a code block)
+    if (!inBlock && line.trim() === '') break;
+
+    // Track code block open/close
+    const ticks = (line.match(/```/g) ?? []).length;
+    if (ticks % 2 !== 0) inBlock = !inBlock;
+
+    // Strip trailing \ if it's a continuation marker (not inside a block)
+    if (!inBlock && line.endsWith('\\')) {
+      lines.push(line.slice(0, -1));
+    } else {
+      lines.push(line);
+      // If no more continuation signals, stop
+      if (!inBlock && !line.endsWith('\\')) break;
+    }
+  }
+  return lines.join('\n');
+}
+
   const confirmFn: ConfirmFn = yolo
     ? async () => true
     : async (message: string): Promise<boolean> => {
@@ -283,7 +342,7 @@ async function main(prompt: string | undefined, opts: {
     let userInput: string;
     try {
       promptPrintSeperator();
-      userInput = await ask(`  ${chalk.cyan('❯')} `);
+      userInput = await askMultiline(`  ${chalk.cyan('❯')} `);
       promptPrintSeperator();
     } catch {
       if (process.stdin.destroyed) {

@@ -13,7 +13,9 @@ pnpm start                      # Run compiled dist/index.js
 pnpm dev -- --model gpt-4o --max-steps 10 --yolo
 pnpm dev -- --kb "roles based Workflow/Gen_AI_Engineer.md"
 pnpm dev -- --full-history      # Load entire chat history (no message limit)
+pnpm dev -- --paste             # Read prompt from stdin until EOF (Ctrl+D), run as single-turn
 pnpm dev -- "single-turn prompt here"   # Non-interactive one-shot mode
+cat file.txt | pnpm dev -- --paste     # Pipe file contents as single-turn prompt
 ```
 
 No test runner is configured. TypeScript checking is implicit via `tsx` at runtime.
@@ -131,6 +133,8 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - Token graph auto-saves to `token_graph.json` after every turn and on `/exit`.
 - `--yolo` flag skips all `confirm()` prompts in both REPL and single-turn modes.
 - `--full-history` flag loads the entire `chat_history.json` without the default message-count cap (default: last `HISTORY_LOAD_LIMIT = 10` messages).
+- `--paste` / `-p` flag reads all of stdin until EOF (Ctrl+D) before starting, assigns the content to `prompt`, and runs a single-turn agent turn — never enters the REPL. Works with pipes (`cat file.txt | pnpm dev --paste`) or interactive paste + Ctrl+D. If stdin is empty the flag is a no-op and the REPL starts normally.
+- **Multiline REPL input:** `askMultiline()` wraps `ask()` and accumulates lines when the first line ends with `\` or contains an unclosed triple-backtick fence. Slash commands return immediately without entering accumulation mode. A blank line (outside a code block) or a line with no `\` suffix submits the accumulated input. All paths return `Promise<string>` — the REPL loop is unaware of the input mode.
 - **Context Window Guard:** after every agent turn (and after `/retry`), `index.ts` renders a `printContextBar()` showing context fill %. When prompt tokens exceed `CONTEXT_GUARD_THRESHOLD` (80%) of `getContextLimit()` for the active model, `runCompact()` is called automatically (`mode: 'auto'`).
 - `AgentOptions.signal?: AbortSignal` — pass an `AbortController` signal to cancel a running agent turn mid-stream.
 - `streamMessage` also accepts an optional `AbortSignal` and passes it to the OpenAI SDK `create()` call.

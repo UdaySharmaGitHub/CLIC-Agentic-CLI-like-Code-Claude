@@ -426,6 +426,7 @@ Runs the prompt, outputs the result, and exits.
 | `--max-steps <n>` | `15` | Max agent steps per user turn |
 | `--yolo` | `false` | Auto-approve all actions (skip confirmations) |
 | `--full-history` | `false` | Load entire chat history (default: last 10 messages) |
+| `-p, --paste` | `false` | Read prompt from stdin until EOF (Ctrl+D) and run as single-turn; works with pipes: `cat file.txt \| pnpm dev --paste` |
 
 #### Available Models
 
