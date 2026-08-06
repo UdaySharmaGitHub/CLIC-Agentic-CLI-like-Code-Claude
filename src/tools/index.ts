@@ -23,6 +23,8 @@ import * as gitHubExplorer from './githubExtractor.js';
 // ── Tool interface — every tool module must export these ─────────────────────
 interface ToolModule {
   definition: ToolDefinition;
+  // Registry-level erasure — real per-tool type safety comes from each tool's
+  // `z.infer<typeof schema>` signature plus the safeParse gate in executeTool.
   execute: (input: any, confirm: ConfirmFn) => Promise<ToolResult>;
 }
 
@@ -46,7 +48,7 @@ const toolMap = new Map<string, ToolModule>(
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-/** Get all tool definitions to send to the Gemini API */
+/** Get all tool definitions to send to the OpenAI API */
 export function getToolDefinitions(): ToolDefinition[] {
   return tools.map(t => t.definition);
 }
@@ -61,7 +63,17 @@ export async function executeTool(
   if (!tool) {
     return { output: `Unknown tool: ${name}`, isError: true };
   }
-  return tool.execute(input, confirm);
+
+  // Validate input against the tool's zod schema
+  const parsed = tool.definition.schema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      output: `Invalid input for tool ${name}: ${parsed.error.message}`,
+      isError: true,
+    };
+  }
+
+  return tool.execute(parsed.data, confirm);
 }
 
 /** Get the list of registered tool names */

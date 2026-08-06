@@ -9,7 +9,12 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsup src/index.ts --format esm --clean",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "tsx test/index.ts",
+    "test:zod": "tsx test/index.ts",
+    "test:validation-gate": "tsx -e \"import { runValidationGateTests } from './test/zod-validation.test.js'; runValidationGateTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\"",
+    "test:schemas": "tsx -e \"import { runToolSchemaTests } from './test/tool-schemas.test.js'; runToolSchemaTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\"",
+    "test:edge-cases": "tsx -e \"import { runEdgeCaseTests } from './test/edge-cases.test.js'; runEdgeCaseTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\""
   },
   "engines": {
     "node": ">=18"
@@ -23,7 +28,8 @@
     "execa": "^9.5.2",
     "fast-glob": "^3.3.3",
     "openai": "^6.37.0",
-    "ora": "^8.2.0"
+    "ora": "^8.2.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",

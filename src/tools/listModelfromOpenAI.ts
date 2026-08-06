@@ -10,6 +10,12 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
+// Adding the zod schema for input validation
+import { z } from 'zod';
+const schema = z.object({
+  filter: z.string().optional(),
+});
+
 // ── Tool definition ───────────────────────────────────────────────────────────
 
 export const definition: ToolDefinition = {
@@ -27,6 +33,7 @@ export const definition: ToolDefinition = {
     },
     required: [],
   },
+  schema,
 };
 
 // ── Startup helper — fetch models for interactive selection ──────────────────

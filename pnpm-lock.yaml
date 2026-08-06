@@ -31,10 +31,13 @@ importers:
         version: 3.3.3
       openai:
         specifier: ^6.37.0
-        version: 6.37.0(zod@4.3.6)
+        version: 6.37.0(zod@4.4.3)
       ora:
         specifier: ^8.2.0
         version: 8.2.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^22.13.0
@@ -839,8 +842,8 @@ packages:
     resolution: {integrity: sha512-CzhO+pFNo8ajLM2d2IW/R93ipy99LWjtwblvC1RsoSUMZgyLbYFr221TnSNT7GjGdYui6P459mw9JH/g/zW2ug==}
     engines: {node: '>=18'}
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
 
@@ -1263,9 +1266,9 @@ snapshots:
     dependencies:
       mimic-function: 5.0.1
 
-  openai@6.37.0(zod@4.3.6):
+  openai@6.37.0(zod@4.4.3):
     optionalDependencies:
-      zod: 4.3.6
+      zod: 4.4.3
 
   ora@8.2.0:
     dependencies:
@@ -1472,5 +1475,4 @@ snapshots:
 
   yoctocolors@2.1.2: {}
 
-  zod@4.3.6:
-    optional: true
+  zod@4.4.3: {}
