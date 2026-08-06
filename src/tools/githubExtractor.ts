@@ -9,6 +9,14 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
+// Adding the zod schema for input validation
+import { z } from 'zod';
+const schema = z.object({
+  action: z.enum(['profile', 'repos'], { message: 'Action must be "profile" or "repos"' }),
+  username: z.string().min(1, { message: 'Username is required' }),
+  limit: z.string().optional(),
+});
+
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
 interface GitHubProfile {
@@ -112,12 +120,13 @@ export const definition: ToolDefinition = {
     },
     required: ['action', 'username'],
   },
+  schema,
 };
 
 // ── Dispatcher ───────────────────────────────────────────────────────────────
 
 export async function execute(
-  input: { action: string; username: string; limit?: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   if (input.action === 'repos') return executeRepos(input, confirm);

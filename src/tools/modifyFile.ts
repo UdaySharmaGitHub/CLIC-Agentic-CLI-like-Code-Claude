@@ -12,6 +12,14 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath, renderDiff } from './helpers.js';
+import {z} from 'zod';
+
+export const schema = z.object({
+  filepath: z.string().min(1, { message: 'Filepath is required' }),
+  find: z.string().min(1, { message: 'Find text is required' }),
+  replace: z.string().min(1, { message: 'Replace text is required' }),
+});
+
 
 export const definition: ToolDefinition = {
   name: 'modify_file',
@@ -25,10 +33,11 @@ export const definition: ToolDefinition = {
     },
     required: ['filepath', 'find', 'replace'],
   },
+  schema
 };
 
 export async function execute(
-  input: { filepath: string; find: string; replace: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const filepath = resolvePath(input.filepath);

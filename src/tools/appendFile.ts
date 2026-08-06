@@ -11,6 +11,12 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
+import {z} from 'zod';
+
+export const schema = z.object({
+  filepath: z.string().min(1, { message: 'Filepath is required' }),
+  content: z.string().min(1, { message: 'Content is required' }),
+}); 
 
 export const definition: ToolDefinition = {
   name: 'append_file',
@@ -23,10 +29,11 @@ export const definition: ToolDefinition = {
     },
     required: ['filepath', 'content'],
   },
+  schema,
 };
 
 export async function execute(
-  input: { filepath: string; content: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const filepath = resolvePath(input.filepath);

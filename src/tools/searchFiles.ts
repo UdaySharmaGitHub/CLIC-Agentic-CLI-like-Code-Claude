@@ -11,6 +11,13 @@ import {
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
 
+// Adding the zod schema for input validation
+import { z } from 'zod';
+const schema = z.object({
+  pattern: z.string().min(1, { message: 'Pattern is required' }),
+  directory: z.string().optional(),
+});
+
 export const definition: ToolDefinition = {
   name: 'search_files',
   description: 'Search for files matching a glob pattern. Returns a list of matching file paths. Useful for finding files in a project.',
@@ -22,10 +29,11 @@ export const definition: ToolDefinition = {
     },
     required: ['pattern'],
   },
+  schema,
 };
 
 export async function execute(
-  input: { pattern: string; directory?: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const dir = resolvePath(input.directory || '.');

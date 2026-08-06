@@ -11,6 +11,12 @@ import {
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
 
+// Adding the zod schema for input validation
+import { z } from 'zod';
+const schema = z.object({
+  path: z.string().optional(),
+});
+
 export const definition: ToolDefinition = {
   name: 'list_directory',
   description: 'List the contents of a directory with file details (permissions, size, modification time).',
@@ -21,10 +27,11 @@ export const definition: ToolDefinition = {
     },
     required: [],
   },
+  schema,
 };
 
 export async function execute(
-  input: { path?: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const dirPath = resolvePath(input.path || '.');

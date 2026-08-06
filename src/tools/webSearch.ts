@@ -10,6 +10,12 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
+// Adding the zod schema for input validation
+import { z } from 'zod';
+const schema = z.object({
+  query: z.string().min(1, { message: 'Query is required' }),
+});
+
 export const definition: ToolDefinition = {
   name: 'web_search',
   description: 'Answer questions about the real world — current events, people, companies, science, technology, sports, finance, geography, history, or any general knowledge topic. Use this whenever the user asks about anything beyond coding or local files.',
@@ -20,19 +26,14 @@ export const definition: ToolDefinition = {
     },
     required: ['query'],
   },
+  schema,
 };
 
 export async function execute(
-  input: { query: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   printToolHeader('web_search', `Query: ${input.query}`);
-
-  if (!input.query) {
-    printToolError('No search query provided.');
-    printSeparator();
-    return { output: 'ERROR — no search query provided.', isError: true };
-  }
 
   if (!await confirm(`Approve web search for '${input.query}'?`)) {
     printRejected();

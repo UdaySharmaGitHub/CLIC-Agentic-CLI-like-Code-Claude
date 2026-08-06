@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  Tools — shared types
+//  Tools — shared types with ZOD Validation
 // ─────────────────────────────────────────────────────────────────────────────
+import {z} from 'zod';
 
 export type ConfirmFn = (message: string) => Promise<boolean>;
 
@@ -17,4 +18,5 @@ export interface ToolDefinition {
     properties: Record<string, { type: string; description: string }>;
     required: string[];
   };
+  schema: z.ZodTypeAny;
 }

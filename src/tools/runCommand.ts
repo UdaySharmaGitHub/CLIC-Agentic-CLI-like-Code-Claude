@@ -10,6 +10,11 @@ import {
   printToolBlocked, printRejected, printDimOutput, printSeparator,
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
+import {z} from 'zod';
+
+export const schema = z.object({
+  command: z.string().min(1, { message: 'Command is required' }),
+});
 
 export const definition: ToolDefinition = {
   name: 'run_command',
@@ -21,10 +26,11 @@ export const definition: ToolDefinition = {
     },
     required: ['command'],
   },
+  schema,
 };
 
 export async function execute(
-  input: { command: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   printToolHeader('run_command', input.command);

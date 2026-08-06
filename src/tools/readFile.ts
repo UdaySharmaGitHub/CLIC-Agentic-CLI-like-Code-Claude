@@ -12,6 +12,12 @@ import {
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
 
+// Adding the zod schema for input validation
+import {z} from 'zod';
+const schema = z.object({
+  filepath: z.string().min(1, { message: 'Filepath is required' }),
+});
+
 export const definition: ToolDefinition = {
   name: 'read_file',
   description: 'Read the contents of a file at the given path. Returns the file text. Use this to understand existing code before modifying it.',
@@ -22,10 +28,11 @@ export const definition: ToolDefinition = {
     },
     required: ['filepath'],
   },
+  schema,
 };
 
 export async function execute(
-  input: { filepath: string },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const filepath = resolvePath(input.filepath);
