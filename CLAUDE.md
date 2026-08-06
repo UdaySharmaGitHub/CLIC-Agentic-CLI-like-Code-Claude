@@ -16,9 +16,16 @@ pnpm dev -- --full-history      # Load entire chat history (no message limit)
 pnpm dev -- --paste             # Read prompt from stdin until EOF (Ctrl+D), run as single-turn
 pnpm dev -- "single-turn prompt here"   # Non-interactive one-shot mode
 cat file.txt | pnpm dev -- --paste     # Pipe file contents as single-turn prompt
+
+# Tests (Zod input-validation suite)
+pnpm test                       # Run full test suite (test/index.ts)
+pnpm test:zod                   # Alias for pnpm test
+pnpm test:validation-gate       # Zod validation-gate tests (test/zod-validation.test.ts)
+pnpm test:schemas               # Tool schema shape tests (test/tool-schemas.test.ts)
+pnpm test:edge-cases            # Edge-case tests (test/edge-cases.test.ts)
 ```
 
-No test runner is configured. TypeScript checking is implicit via `tsx` at runtime.
+TypeScript checking is implicit via `tsx` at runtime.
 
 ## Architecture
 
@@ -58,7 +65,7 @@ User input (REPL or single-turn)
 | `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel, diff view, context progress bar; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `actionLabel` |
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
-| `src/tools/types.ts` | Shared tool types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
+| `src/tools/types.ts` | Shared tool types: `ConfirmFn`, `ToolResult`, `ToolDefinition` (includes `schema: z.ZodTypeAny` for Zod validation gate in `executeTool`) |
 | `src/tools/helpers.ts` | Shared utilities: `resolvePath()` (handles `~` expansion + `path.resolve`), `renderDiff()` (Claude Code-style full-width diff renderer used by `write_file` and `modify_file`) |
 | `src/tools/listModelfromOpenAI.ts` | `fetchAvailableModelOptions()` startup helper; **not** registered in tool registry |
 | `src/commands/index.ts` | Command registry — maps slash command name → module, exposes `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
@@ -67,12 +74,14 @@ User input (REPL or single-turn)
 ### Tool system
 
 Each tool is a self-contained module that exports:
-- `definition: ToolDefinition` — name, description, JSON Schema parameters (sent to LLM)
+- `definition: ToolDefinition` — name, description, JSON Schema parameters (sent to LLM), and a `schema: z.ZodTypeAny` used by the registry for input validation
 - `execute(input, confirm)` — runs the action, calls `confirm()` before destructive ops
 
 Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`, `github`.
 
 Note: `list_models` is implemented in `src/tools/listModelfromOpenAI.ts` but is **not** registered in the tool registry — it is only used as a startup helper via `fetchAvailableModelOptions()`.
+
+**Zod input validation gate:** `executeTool()` in `tools/index.ts` calls `tool.definition.schema.safeParse(input)` before invoking `execute()`. If validation fails, it returns an error result immediately without calling the tool. Each tool's `schema` field is a `z.ZodObject` defined inline in the tool module alongside `definition`.
 
 **`write_file` and `modify_file` diff display:** both tools render a Claude Code-style full-width unified diff (via `renderDiff()` in `src/tools/helpers.ts`, using the `diff` npm package) before asking for confirmation. `modify_file` also creates a `.bak` backup before patching.
 

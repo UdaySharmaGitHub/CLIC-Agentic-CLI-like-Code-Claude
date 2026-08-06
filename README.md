@@ -70,6 +70,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | Package | Role |
 |---|---|
 | **`openai`** | OpenAI-compatible API client with streaming + function calling |
+| **`zod`** | Runtime input validation — each tool declares a `z.ZodObject` schema; `executeTool()` runs `safeParse` before calling `execute()` |
 | **`commander`** | CLI argument parsing (`--model`, `--kb`, `--yolo`, `--full-history`, etc.) |
 | **`@clack/prompts`** | Interactive setup wizard (API key, model picker, KB file) |
 | **`execa`** | Safe subprocess execution with timeout + error capture |
@@ -273,14 +274,17 @@ Every tool is a self-contained module that exports two things:
 ```typescript
 // src/tools/myTool.ts
 
+const schema = z.object({ ... });   // Zod schema for runtime validation
+
 export const definition: ToolDefinition = {
   name: 'my_tool',
   description: '...',
   parameters: { type: 'object', properties: { ... }, required: [] },
+  schema,   // ← required: executeTool() calls schema.safeParse(input) before execute()
 };
 
 export async function execute(
-  input: { /* typed input */ },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   // 1. Print header
@@ -298,7 +302,10 @@ tools/index.ts
   ├── Imports all tool modules
   ├── Builds toolMap (name → module)
   ├── getToolDefinitions() → JSON schemas sent to the LLM
-  └── executeTool(name, input, confirm) → routes to correct module
+  ├── executeTool(name, input, confirm)
+  │     ├── schema.safeParse(input) → validation gate (returns error result on failure)
+  │     └── tool.execute(parsed.data, confirm) → routes to correct module
+  └── getToolNames() → list of registered tool names
 ```
 
 Registered tools:
@@ -333,7 +340,7 @@ Registered tools:
 | **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `printContextBar()`, `actionLabel()` |
 | **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
 | **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
-| **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` |
+| **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` (includes `schema: z.ZodTypeAny` for the Zod validation gate) |
 | **`tools/helpers.ts`** | Shared utilities: `resolvePath()` (handles `~` expansion + `path.resolve`), `renderDiff()` (full-width unified diff renderer using `diff` package) |
 | **`tools/index.ts`** | Registry: imports all tools, builds lookup map, exports `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
 
@@ -489,9 +496,16 @@ The tool system is designed for easy extension. Two steps:
 Create `src/tools/myNewTool.ts`:
 
 ```typescript
+import { z } from 'zod';
 import type { ToolDefinition, ConfirmFn, ToolResult } from './types.js';
 
-// 1. Define the JSON schema (sent to the LLM)
+// 1. Zod schema — used by executeTool() for runtime input validation
+const schema = z.object({
+  param1: z.string().min(1),
+  param2: z.number().optional(),
+});
+
+// 2. Define the JSON schema (sent to the LLM)
 export const definition: ToolDefinition = {
   name: 'my_new_tool',
   description: 'What this tool does — the LLM reads this to decide when to use it.',
@@ -503,11 +517,12 @@ export const definition: ToolDefinition = {
     },
     required: ['param1'],
   },
+  schema, // ← required: executeTool() calls schema.safeParse(input) before execute()
 };
 
-// 2. Implement the executor
+// 3. Implement the executor
 export async function execute(
-  input: { param1: string; param2?: number },
+  input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   // Ask for approval
