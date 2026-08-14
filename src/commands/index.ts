@@ -20,6 +20,7 @@ import { command as undoCmd } from './undo.js';
 import { command as retryCmd } from './retry.js';
 import { command as tokensCmd } from './tokens.js';
 import { command as roleCmd } from './role.js';
+import { command as sessionCmd } from './session.js';
 import { SlashCommand, CommandContext, CommandAction } from './types.js';
 
 // ── Registry array — add new commands here ───────────────────────────────────
@@ -36,6 +37,7 @@ const commands: SlashCommand[] = [
   retryCmd,
   tokensCmd,
   roleCmd,
+  sessionCmd,
 ];
 
 // ── Build name → command lookup (including aliases) ──────────────────────────

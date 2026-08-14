@@ -4,12 +4,23 @@
 
 import 'dotenv/config';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import chalk from 'chalk';
 
 export const DEFAULT_MODEL = 'gpt-4o';
 export const DEFAULT_MAX_STEPS = 15;
 export const HISTORY_FILE = process.env.AGENT_HISTORY_FILE || 'chat_history.json';
 export const TOKEN_GRAPH_FILE = process.env.AGENT_TOKEN_GRAPH_FILE || 'token_graph.json';
+
+// ── Named Sessions ──────────────────────────────────────────────────────────
+export const SESSIONS_DIR = process.env.AGENT_SESSIONS_DIR || 'sessions';
+export const SESSIONS_INDEX_FILE = process.env.AGENT_SESSIONS_INDEX_FILE || 'sessions.json';
+export const DEFAULT_SESSION = 'default';
+
+/** Per-session chat history file path, e.g. sessions/<name>/chat_history.json */
+export function sessionHistoryPath(name: string): string {
+  return path.join(SESSIONS_DIR, name, 'chat_history.json');
+}
 
 export interface AppConfig {
   apiKey: string;

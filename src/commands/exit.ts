@@ -7,9 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
-import { saveHistory } from "../memory.js"
+import { saveHistory, getHistoryFile } from "../memory.js"
 import { SlashCommand } from "./types.js";
-import { HISTORY_FILE } from '../config.js';
 
 export const command:SlashCommand = {
     name:'/exit',
@@ -18,7 +17,7 @@ export const command:SlashCommand = {
     execute: async () => {
     await saveHistory();
     console.log();
-    console.log(chalk.green(`  ✅ History saved → ${HISTORY_FILE}`));
+    console.log(chalk.green(`  ✅ History saved → ${getHistoryFile()}`));
     console.log(chalk.cyan('  👋 Goodbye!'));
     console.log();
     return { type: 'exit' };

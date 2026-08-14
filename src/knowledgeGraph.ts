@@ -43,7 +43,10 @@ let graph: KnowledgeGraph = { nodes: [], edges: [] };
 // ── Node / Edge mutations ────────────────────────────────────────────────────
 
 export function addNode(node: KGNode): KGNode {
-  if (!graph.nodes.some(n => n.id === node.id)) {
+  const existing = graph.nodes.find(n => n.id === node.id);
+  if (existing) {
+    Object.assign(existing.properties, node.properties);
+  } else {
     graph.nodes.push(node);
   }
   return node;
@@ -75,6 +78,11 @@ export function getNeighbors(nodeId: string, edgeType?: EdgeType): KGNode[] {
 
 export function getAllSessionNodes(): KGNode[] {
   return graph.nodes.filter(n => n.type === 'session');
+}
+
+/** Find a session node by its human-readable name (properties.name). */
+export function getSessionNodeByName(name: string): KGNode | undefined {
+  return graph.nodes.find(n => n.type === 'session' && n.properties.name === name);
 }
 
 // ── Query helpers ────────────────────────────────────────────────────────────

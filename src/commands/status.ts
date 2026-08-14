@@ -21,6 +21,7 @@ export const command:SlashCommand = {
         kbFile:ctx.kbFile,
         model:ctx.model,
         contextLimit: getContextLimit(),
+        sessionName: ctx.sessionName,
        });
        return {type:'continue'};
     },
