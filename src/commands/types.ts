@@ -16,6 +16,8 @@ export interface CommandContext {
   systemPrompt?: string;
   yolo?: boolean;
   sessionId?: string;
+  /** Human-readable active session name (for the prompt/status indicator). */
+  sessionName?: string;
   /** Single-shot LLM call injected by index.ts — used by /compact */
   callLLM?: (messages: ChatMessage[]) => Promise<string>;
 }

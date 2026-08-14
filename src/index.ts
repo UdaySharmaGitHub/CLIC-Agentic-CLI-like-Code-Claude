@@ -11,13 +11,23 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
-import { printBanner, printSeparator, promptPrintSeperator, printContextBar } from './ui.js';
+import { printBanner, printSeparator, promptPrintSeperator, printContextBar, sessionNameBadge } from './ui.js';
 import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
-import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE } from './config.js';
-import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage } from './memory.js';
+import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE, DEFAULT_SESSION, sessionHistoryPath } from './config.js';
+import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage, setHistoryFile, clearMessages } from './memory.js';
 import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
+import {
+  loadIndex,
+  migrateLegacy,
+  getActive,
+  hasSession,
+  ensureSession,
+  setActive,
+  listSessions,
+  sessionNodeId,
+} from './session.js';
 import type { ConfirmFn } from './tools/index.js';
 import { fetchAvailableModelOptions } from './tools/listModelfromOpenAI.js';
 // Commands
@@ -45,6 +55,7 @@ const program = new Command()
   .option('--max-steps <n>', 'Max agent steps per turn', String(DEFAULT_MAX_STEPS))
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
   .option('--full-history', 'Load entire chat history without a message limit')
+  .option('--session <name>', 'Named session to load or create at startup')
   .option('-p, --paste', 'Read prompt from stdin until EOF (Ctrl+D), then run as single-turn')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
   .action(main);
@@ -57,6 +68,7 @@ async function main(prompt: string | undefined, opts: {
   maxSteps: string;
   yolo?: boolean;
   fullHistory?: boolean;
+  session?: string;
   paste?: boolean;          // ← add this
 }) {
   let model = opts.model;
@@ -183,12 +195,26 @@ async function main(prompt: string | undefined, opts: {
   let client = createClient(model);
 
   // ── Load or initialise history + Knowledge Graph ──────────────────────────
- await loadHistory(opts.fullHistory ? undefined : HISTORY_LOAD_LIMIT);
   await loadGraph(TOKEN_GRAPH_FILE);
-  const sessionId = `session_${Date.now()}`;
-  addNode({ id: sessionId, type: 'session', properties: { model, role: kbFile ?? null }, createdAt: new Date().toISOString() });
+
+  // Resolve the active named session (migrate legacy history on first run).
+  await loadIndex();
+  await migrateLegacy();
+  let sessionName = opts.session ?? getActive() ?? DEFAULT_SESSION;
+  if (opts.session && !hasSession(opts.session)) {
+    await ensureSession(opts.session);
+  }
+  await setActive(sessionName);
+
+  // Point history at the active session's file, then load it.
+  setHistoryFile(sessionHistoryPath(sessionName));
+  await loadHistory(opts.fullHistory ? undefined : HISTORY_LOAD_LIMIT);
+
+  let sessionId = sessionNodeId(sessionName);
+  addNode({ id: sessionId, type: 'session', properties: { name: sessionName, model, role: kbFile ?? null }, createdAt: new Date().toISOString() });
 
   console.log(chalk.dim(`  System: ${process.platform} (${process.arch}) | Model: ${model}`));
+  console.log(chalk.green(`  🔖 Session: `) + sessionNameBadge(sessionName) + chalk.dim(` (${listSessions().length} total)`));
   if (knowledgeBase) {
     console.log(chalk.green(`  📚 Knowledge Base: Active`) + chalk.dim(` (from ${kbFile})`));
   } else {
@@ -341,7 +367,7 @@ async function main(prompt: string | undefined, opts: {
   while (true) {
     let userInput: string;
     try {
-      promptPrintSeperator();
+      promptPrintSeperator(sessionName);
       userInput = await askMultiline(`  ${chalk.cyan('❯')} `);
       promptPrintSeperator();
     } catch {
@@ -356,11 +382,12 @@ async function main(prompt: string | undefined, opts: {
 
     // ── REPL commands ─────────────────────────────────────────────────────
     if (isSlashedCommand(trimmed)) {
-      const ctx: CommandContext = { model, maxSteps, showRaw, kbFile, systemPrompt, yolo, sessionId, callLLM };
+      const ctx: CommandContext = { model, maxSteps, showRaw, kbFile, systemPrompt, yolo, sessionId, sessionName, callLLM };
       const result = await executeCommand(trimmed, ctx);
 
       if (result.type === 'exit') {
         clearInterval(keepAlive);
+        await saveHistory();
         await saveGraph(TOKEN_GRAPH_FILE);
         break;
       }
@@ -373,6 +400,32 @@ async function main(prompt: string | undefined, opts: {
           model = result.updates.model;
           process.env.CLIC_MODEL = model;
           client = createClient(model);
+        }
+        // Session switch / new / rename — finalize the in-memory + file swap here.
+        if (result.updates.sessionId !== undefined && result.updates.sessionId !== sessionId) {
+          const newName = result.updates.sessionName ?? sessionName;
+          const oldName = sessionName;
+          if (hasSession(oldName)) {
+            // switch / new: persist the outgoing session, then load the target's history.
+            await saveHistory();
+            setHistoryFile(sessionHistoryPath(newName));
+            clearMessages();
+            await loadHistory(opts.fullHistory ? undefined : HISTORY_LOAD_LIMIT);
+            addNode({
+              id: result.updates.sessionId,
+              type: 'session',
+              properties: { name: newName, model, role: kbFile ?? null },
+              createdAt: new Date().toISOString(),
+            });
+            await setActive(newName);
+          } else {
+            // rename: the directory + index + KG node were already updated by the command.
+            // The current conversation is unchanged — just repoint the file path.
+            setHistoryFile(sessionHistoryPath(newName));
+            await saveHistory();
+          }
+          sessionId = result.updates.sessionId;
+          sessionName = newName;
         }
       }
 

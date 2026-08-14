@@ -160,6 +160,7 @@ export function printHelp(): void {
   const capItem = (icon: string, name: string) => `  ${icon} ${chalk.white(name)}`;
   const cmdCat  = (lbl: string) => `  ${chalk.hex('#F59E0B')('┄')}  ${chalk.hex('#FCD34D').bold(lbl)}`;
   const cmdItem = (cmd: string, desc: string) => `  ${accent(cmd.padEnd(10))}${chalk.dim(desc)}`;
+  const cmdSub  = (sub: string, desc: string) => `    ${chalk.dim('·')} ${chalk.dim(sub.padEnd(8))}${chalk.dim(desc)}`;
 
   // Left column — Capabilities (17 rows)
   const L: string[] = [
@@ -182,9 +183,15 @@ export function printHelp(): void {
     '',
   ];
 
-  // Right column — Commands (17 rows)
+  // Right column — Commands
   const R: string[] = [
     cmdCat('Session'),
+    cmdItem('/session',  'Named sessions  /s'),
+    cmdSub('new',    'create & switch'),
+    cmdSub('switch', 'switch to session'),
+    cmdSub('rename', 'rename active'),
+    cmdSub('list',   'list all sessions'),
+    cmdSub('delete', 'delete a session'),
     cmdItem('/compact',  'Summarize history'),
     cmdItem('/clear',    'Clear chat'),
     cmdItem('/undo',     'Remove last exchange'),
@@ -244,6 +251,7 @@ export function printStatus(opts: {
   kbFile?: string;
   model: string;
   contextLimit: number;
+  sessionName?: string;
 }): void {
   console.log();
   console.log(boxTop());
@@ -256,6 +264,7 @@ export function printStatus(opts: {
     ['🐚 Shell',       path.basename(process.env.SHELL || 'unknown')],
     ['📁 CWD',         process.cwd()],
     ['📅 Date',        new Date().toISOString().replace('T', ' ').slice(0, 19)],
+    ['🔖 Session',     opts.sessionName ?? chalk.dim('default')],
     ['🤖 Model',       opts.model],
     ['🪟 Context Win', `${opts.contextLimit.toLocaleString()} tokens`],
     ['💬 History',     `${opts.messageCount} messages`],
@@ -301,14 +310,51 @@ export function actionLabel(action: string): string {
   return style.color(`${style.icon} ${name}`);
 }
 
-// ── Separators & tool output ─────────────────────────────────────────────────
+// ── Session color identity ────────────────────────────────────────────────────
+// Each session gets a consistent bg/fg color derived from its name so the same
+// session always renders in the same color (not random per-render).
+
+const SESSION_PALETTE: Array<{ bg: string; fg: string }> = [
+  { bg: '#7C3AED', fg: '#FFFFFF' }, // violet
+  { bg: '#DC2626', fg: '#FFFFFF' }, // red
+  { bg: '#059669', fg: '#FFFFFF' }, // emerald
+  { bg: '#2563EB', fg: '#FFFFFF' }, // blue
+  { bg: '#D97706', fg: '#000000' }, // amber
+  { bg: '#0891B2', fg: '#FFFFFF' }, // cyan
+  { bg: '#DB2777', fg: '#FFFFFF' }, // pink
+  { bg: '#65A30D', fg: '#FFFFFF' }, // lime
+  { bg: '#EA580C', fg: '#FFFFFF' }, // orange
+  { bg: '#0D9488', fg: '#FFFFFF' }, // teal
+];
+
+function sessionPaletteEntry(name: string): { bg: string; fg: string } {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return SESSION_PALETTE[hash % SESSION_PALETTE.length];
+}
+
+/** Renders a session name as a compact colored badge: ` name ` */
+export function sessionNameBadge(name: string): string {
+  const { bg, fg } = sessionPaletteEntry(name);
+  return chalk.hex(fg).bgHex(bg)(` ${name} `);
+}
+
+
 
 export function printSeparator(): void {
   console.log(chalk.dim(`  ${'─'.repeat(W + 4)}`));
 }
 
-export function promptPrintSeperator():void{
-  console.log(chalk.cyanBright(`  ${'─'.repeat(W + 5)}`));
+export function promptPrintSeperator(sessionName?: string): void {
+  const termWidth = process.stdout.columns || 80;
+  const badge = sessionName ? ` ${sessionNameBadge(sessionName)}` : '';
+  // Badge has ANSI escape codes — measure visible length separately.
+  const badgeVisLen = sessionName ? sessionName.length + 2 : 0; // " " + name + " " + leading space
+  const dashCount = Math.max(4, termWidth - badgeVisLen - 2);
+  const dashes = chalk.cyanBright('─'.repeat(dashCount));
+  console.log(`  ${dashes}${badge}`);
 }
 
 export function printToolHeader(toolName: string, detail: string): void {
