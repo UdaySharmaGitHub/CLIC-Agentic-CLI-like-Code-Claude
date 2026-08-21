@@ -13,6 +13,7 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath, renderDiff } from './helpers.js';
+import { markRead } from '../watcher.js';
 import { z } from 'zod';
 
 export const schema = z.object({
@@ -72,6 +73,7 @@ export async function execute(
     await fs.mkdir(path.dirname(filepath), { recursive: true });
     const lines = input.content.split('\n');
     await fs.writeFile(filepath, input.content + '\n', 'utf-8');
+    markRead(filepath);
     printToolSuccess(`File written: ${filepath} (${lines.length} lines)`);
     printSeparator();
     return { output: `File written successfully to '${filepath}' (${lines.length} lines).`, isError: false };
