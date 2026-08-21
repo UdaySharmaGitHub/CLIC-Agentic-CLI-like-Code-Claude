@@ -11,6 +11,7 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
+import { getStalenessNote, markRead } from '../watcher.js';
 
 // Adding the zod schema for input validation
 import {z} from 'zod';
@@ -71,8 +72,11 @@ export async function execute(
     printSeparator();
 
     const suffix = truncated ? '\n[... file truncated at 12000 chars ...]' : '';
+    const staleNote = getStalenessNote(filepath);
+    markRead(filepath);
+    const body = `[File '${filepath}' (${lines.length} lines)]:\n${displayContent}${suffix}`;
     return {
-      output: `[File '${filepath}' (${lines.length} lines)]:\n${displayContent}${suffix}`,
+      output: staleNote ? `${staleNote}\n\n${body}` : body,
       isError: false,
     };
   } catch (err: unknown) {
