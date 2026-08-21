@@ -4,7 +4,10 @@
 
 import os from 'node:os';
 
-export function buildSystemPrompt(knowledgeBase?: string): string {
+export function buildSystemPrompt(
+  knowledgeBase?: string,
+  recentFiles?: Array<{ path: string; ago: string }>,
+): string {
   let prompt = `You are CLIC — Command Line Intelligence Companion, created by UdaySharmaGitHub — a powerful AI assistant running inside a CLI. capable of answering any question, accessing real-world information from the internet, and interacting with the local filesystem and shell using the tools provided.
 
 System context:
@@ -24,6 +27,23 @@ GUIDELINES:
 - For pure Q&A with no file/command needed, just respond with text.
 - When creating or modifying code, ensure correctness and follow best practices.
 - Keep responses concise but informative.`;
+
+  if (recentFiles && recentFiles.length > 0) {
+    const shown = recentFiles.slice(0, 5);
+    const rows = shown
+      .map(f => `  • ${f.path.padEnd(24)} (${f.ago})`)
+      .join('\n');
+    const overflow = recentFiles.length > 5
+      ? `\n  ...and ${recentFiles.length - 5} more`
+      : '';
+    prompt += `
+
+─── Workspace File Activity ─────────────────────────────────────
+The following files were recently modified externally (in your editor/IDE):
+${rows}${overflow}
+These may be relevant to the current task.
+─────────────────────────────────────────────────────────────────`;
+  }
 
   if (knowledgeBase) {
     prompt += `
