@@ -15,6 +15,7 @@ import { printBanner, printSeparator, promptPrintSeperator, printContextBar, ses
 import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
+import { startWatcher, stopWatcher, getRecentlyModified } from './watcher.js';
 import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE, DEFAULT_SESSION, sessionHistoryPath } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage, setHistoryFile, clearMessages } from './memory.js';
 import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
@@ -56,6 +57,7 @@ const program = new Command()
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
   .option('--full-history', 'Load entire chat history without a message limit')
   .option('--session <name>', 'Named session to load or create at startup')
+  .option('--no-watch', 'Disable workspace file watcher (for large repos or NFS/Docker)')
   .option('-p, --paste', 'Read prompt from stdin until EOF (Ctrl+D), then run as single-turn')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
   .action(main);
@@ -69,6 +71,7 @@ async function main(prompt: string | undefined, opts: {
   yolo?: boolean;
   fullHistory?: boolean;
   session?: string;
+  watch?: boolean;          // commander maps --no-watch → watch: false
   paste?: boolean;          // ← add this
 }) {
   let model = opts.model;
@@ -190,6 +193,13 @@ async function main(prompt: string | undefined, opts: {
 
   outro(chalk.green(' Setup complete '));
 
+  // ── Workspace file watcher (always-on; --no-watch to disable) ─────────────
+  if (opts.watch !== false) {
+    startWatcher(process.cwd());
+  } else {
+    console.log(chalk.dim('  ⚡ File watcher: Disabled (--no-watch)'));
+  }
+
   // ── Build system prompt + client ──────────────────────────────────────────
   let systemPrompt = buildSystemPrompt(knowledgeBase);
   let client = createClient(model);
@@ -258,11 +268,13 @@ async function main(prompt: string | undefined, opts: {
     const singleRl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const singleConfirmFn = createSingleTurnConfirmFn(singleRl);
     pushMessage({ role: 'user', content: prompt });
+    systemPrompt = buildSystemPrompt(knowledgeBase, getRecentlyModified());
     await runAgentTurn(client, getMessages(), systemPrompt, {
       model, maxSteps, confirm: singleConfirmFn, showRaw, sessionId,
     });
     await saveHistory();
     await saveGraph(TOKEN_GRAPH_FILE);
+    stopWatcher();
     singleRl.close();
     return;
   }
@@ -279,6 +291,7 @@ async function main(prompt: string | undefined, opts: {
     if (agentRunning) return; // mid-turn: handled per-turn below
     console.log(chalk.dim('\n  Saving and exiting...'));
     clearInterval(keepAlive);
+    stopWatcher();
     await saveHistory();
     await saveGraph(TOKEN_GRAPH_FILE);
     process.exit(0);
@@ -373,6 +386,7 @@ async function main(prompt: string | undefined, opts: {
     } catch {
       if (process.stdin.destroyed) {
         clearInterval(keepAlive);
+        stopWatcher();
         break;
       }
       continue;
@@ -387,6 +401,7 @@ async function main(prompt: string | undefined, opts: {
 
       if (result.type === 'exit') {
         clearInterval(keepAlive);
+        stopWatcher();
         await saveHistory();
         await saveGraph(TOKEN_GRAPH_FILE);
         break;
@@ -431,6 +446,7 @@ async function main(prompt: string | undefined, opts: {
 
       if (result.type === 'retry') {
         trimToLastUserMessage();
+        systemPrompt = buildSystemPrompt(knowledgeBase, getRecentlyModified());
         const retryAc = new AbortController();
         const retryOnSIGINT = () => { retryAc.abort(); process.stdout.write('\n'); };
         agentRunning = true;
@@ -473,6 +489,7 @@ async function main(prompt: string | undefined, opts: {
 
     // ── Agent turn ────────────────────────────────────────────────────────
     pushMessage({ role: 'user', content: trimmed });
+    systemPrompt = buildSystemPrompt(knowledgeBase, getRecentlyModified());
 
     const ac = new AbortController();
     const onSIGINT = () => { ac.abort(); process.stdout.write('\n'); };
