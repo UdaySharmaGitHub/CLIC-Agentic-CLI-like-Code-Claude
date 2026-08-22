@@ -62,6 +62,8 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | 🛡️ Safety Layer | Blocked commands + protected paths + human approval |
 | 🪟 Context Guard | Monitors context fill % after every turn; auto-compacts at 80% to prevent cutoff |
 | 🔍 Diff Preview | `write_file` and `modify_file` render a full-width unified diff before confirmation |
+| 🗂️ Named Sessions | Multiple independent chat histories via `--session <name>` or `/session` — create, switch, rename, delete sessions without losing context |
+| 👁️ Workspace File Watching | chokidar watches CWD for external edits; injects a `Workspace File Activity` block into the system prompt each turn and prepends an inline staleness note on `read_file` when a file changed since the agent last saw it; disable with `--no-watch` |
 
 ---
 
@@ -76,6 +78,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | **`execa`** | Safe subprocess execution with timeout + error capture |
 | **`fast-glob`** | Glob-based file search |
 | **`diff`** | Unified diff generation for `write_file` / `modify_file` preview |
+| **`chokidar`** | Cross-platform filesystem watcher for workspace file activity tracking (pinned to v3) |
 | **`chalk`** | Colored terminal output |
 | **`ora`** | Spinner while waiting for LLM responses |
 | **`dotenv`** | Load `.env` config (API keys) |
@@ -94,10 +97,12 @@ clic/
 │   ├── openai.ts             ← OpenAI SDK wrapper (createClient / streamMessage / withRetry / TokenUsage)
 │   ├── knowledgeGraph.ts     ← Token-tracking Knowledge Graph (persisted to token_graph.json)
 │   ├── pricing.ts            ← Real-time model pricing via LiteLLM proxy (getCost / formatCost / isPricingLoaded)
-│   ├── prompts.ts            ← System prompt builder (buildSystemPrompt)
-│   ├── memory.ts             ← Chat history management (load/save/push/pop/clear/trim)
+│   ├── prompts.ts            ← System prompt builder (buildSystemPrompt — injects workspace activity + KB)
+│   ├── memory.ts             ← Chat history management (load/save/push/pop/clear/trim + setHistoryFile)
+│   ├── session.ts            ← Named-session lifecycle (create/switch/rename/delete + sessions.json index)
+│   ├── watcher.ts            ← Singleton workspace file watcher (chokidar; staleness notes + ambient context)
 │   ├── safety.ts             ← Blocked commands + protected paths
-│   ├── config.ts             ← Env loading, constants, context limits, KB loader, getContextLimit()
+│   ├── config.ts             ← Env loading, constants, context limits, session paths, KB loader
 │   ├── ui.ts                 ← Banner, help, status, context bar, diff view, chalk formatters
 │   ├── commands/
 │   │   ├── index.ts          ← Command registry + router + tab completer
@@ -113,6 +118,7 @@ clic/
 │   │   ├── clear.ts          ← /clear  — clear history
 │   │   ├── raw.ts            ← /raw    — toggle debug output
 │   │   ├── help.ts           ← /help   — show help menu
+│   │   ├── session.ts        ← /session — create, switch, rename, delete named sessions
 │   │   └── exit.ts           ← /exit   — quit agent
 │   └── tools/
 │       ├── index.ts          ← Tool registry + router
@@ -135,7 +141,9 @@ clic/
 ├── package.json
 ├── tsconfig.json
 ├── setup.sh                  ← Original bash version (v4.1)
-├── chat_history.json         ← Persisted conversation (auto-generated, gitignored)
+├── sessions/                 ← Per-session history dirs (auto-generated, gitignored)
+├── sessions.json             ← Named-session index (auto-generated, gitignored)
+├── chat_history.json         ← Legacy root history (migrated to sessions/ on first run, gitignored)
 └── token_graph.json          ← Token usage Knowledge Graph (auto-generated, gitignored)
 ```
 
@@ -333,11 +341,13 @@ Registered tools:
 | **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Wraps the API call in `withRetry()` (exponential backoff on 429/5xx, up to 4 attempts). Accepts an optional `AbortSignal` passed through to the SDK's `create()` call. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
 | **`knowledgeGraph.ts`** | In-memory graph with `addNode()` / `addEdge()` / query helpers (`getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`, `getSessionTokensByModel`, `getGlobalTokensByModel`). Persisted to `token_graph.json` |
 | **`pricing.ts`** | Real-time pricing from LiteLLM proxy `/model/info` — `loadPricing()` (called at startup), `getCost()`, `getPricing()`, `formatCost()`, `isPricingLoaded()`. Used by `/tokens` to compute estimated USD spend |
-| **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional knowledge base |
-| **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory(limit?)`, `saveHistory()`, `trimToLastUserMessage()` |
-| **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
+| **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional `Workspace File Activity` block (from `getRecentlyModified()`) + optional knowledge base |
+| **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `setHistoryFile()`, `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory(limit?)`, `saveHistory()`, `trimToLastUserMessage()` |
+| **`session.ts`** | Named-session lifecycle — `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `setActive()`, `hasSession()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`. Persists `sessions.json` + per-session `sessions/<name>/` directories |
+| **`watcher.ts`** | Singleton chokidar watcher — `startWatcher(cwd)`, `stopWatcher()`, `markRead(filepath)`, `getStalenessNote(filepath)`, `getRecentlyModified(windowMs?)`. Also exports pure helpers for testing: `formatAgo()`, `computeStalenessNote()`, `selectRecent()` |
+| **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
-| **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `printContextBar()`, `actionLabel()` |
+| **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `printContextBar()`, `actionLabel()`, `sessionNameBadge()` |
 | **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
 | **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
 | **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` (includes `schema: z.ZodTypeAny` for the Zod validation gate) |
@@ -433,6 +443,8 @@ Runs the prompt, outputs the result, and exits.
 | `--max-steps <n>` | `15` | Max agent steps per user turn |
 | `--yolo` | `false` | Auto-approve all actions (skip confirmations) |
 | `--full-history` | `false` | Load entire chat history (default: last 10 messages) |
+| `--session <name>` | `default` | Load or create a named session; names may contain letters, digits, dashes, underscores |
+| `--no-watch` | watch on | Disable workspace file watcher (recommended for large repos, NFS mounts, or Docker) |
 | `-p, --paste` | `false` | Read prompt from stdin until EOF (Ctrl+D) and run as single-turn; works with pipes: `cat file.txt \| pnpm dev --paste` |
 
 #### Available Models
@@ -475,6 +487,7 @@ pnpm dev -- --model gemini-2.5-pro
 | `/compact` | — | Summarize + compress history to free up context |
 | `/model [name]` | `/m` | Switch LLM model mid-session (shows picker if no name given) |
 | `/role` | — | Switch knowledge base / persona without restarting |
+| `/session [new\|switch\|rename\|delete] [name]` | `/s` | Manage named sessions — create, switch, rename, or delete |
 | `/undo` | — | Remove the last user + assistant exchange from history |
 | `/retry` | `/r` | Regenerate the last response (re-runs last user message) |
 | `/tokens` | — | Show actual token usage (from Knowledge Graph) + context size estimate |
@@ -649,18 +662,18 @@ When troubleshooting, check logs first, then configs.
 
 CLIC maintains two independent persistence stores — both built without any third-party memory or vector-store library.
 
-### Chat History (`chat_history.json`)
+### Chat History (`sessions/<name>/chat_history.json`)
 
-Every conversation turn (user message + assistant response + tool calls/results) is serialised and saved as a flat array of **OpenAI-compatible messages**. On the next session, the agent loads this array and injects it into the context window before processing your first message.
+Every conversation turn (user message + assistant response + tool calls/results) is serialised and saved as a flat array of **OpenAI-compatible messages**. Each named session keeps its own independent history file under `sessions/<name>/chat_history.json`. On the next session start (or `--session <name>`), the agent loads that session's array and injects it into the context window.
+
+A **session index** (`sessions.json`) tracks all named sessions and the currently active one. On first run, any existing root `chat_history.json` is automatically migrated into `sessions/default/chat_history.json`.
 
 ```
-chat_history.json  ←  OpenAI ChatMessage[]
-[
-  { role: "user",      content: "..." },
-  { role: "assistant", content: "...", tool_calls: [...] },
-  { role: "tool",      content: "...", tool_call_id: "..." },
+sessions/
+  default/chat_history.json   ←  default session history
+  work/chat_history.json       ←  "work" session history
   ...
-]
+sessions.json                  ←  { active: "work", sessions: [...] }
 ```
 
 ### Token Knowledge Graph (`token_graph.json`)
@@ -685,7 +698,7 @@ Token counts come directly from `stream_options: { include_usage: true }` in the
 | **Survives restarts** | Both files written to disk after every turn and on `/exit` |
 | **Full context replay** | Entire message array injected back into the context window on startup |
 | **Accurate token tracking** | Actual API usage when available; estimated fallback otherwise |
-| **Selective clear** | Use `/clear` in the REPL to wipe chat history (token graph is preserved) |
+| **Selective clear** | Use `/clear` to wipe the current session's chat history (token graph and other sessions preserved); use `/session delete <name>` to remove a whole session |
 | **Configurable paths** | `AGENT_HISTORY_FILE` and `AGENT_TOKEN_GRAPH_FILE` env vars |
 
 ### Result
@@ -738,8 +751,10 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 |---|---|---|
 | `API_KEY` | Yes* | Your OpenAI or compatible API key (prompted interactively if missing) |
 | `BASE_URL` | No | OpenAI-compatible endpoint base URL (default: `https://api.openai.com/v1`) |
-| `AGENT_HISTORY_FILE` | No | Custom path for chat history (default: `chat_history.json`) |
+| `AGENT_HISTORY_FILE` | No | Custom path for legacy root chat history (default: `chat_history.json`) |
 | `AGENT_TOKEN_GRAPH_FILE` | No | Custom path for token Knowledge Graph (default: `token_graph.json`) |
+| `AGENT_SESSIONS_DIR` | No | Custom path for sessions directory (default: `sessions`) |
+| `AGENT_SESSIONS_INDEX_FILE` | No | Custom path for sessions index file (default: `sessions.json`) |
 | `CLIC_MODEL` | No | Set automatically at startup to the active model; read by `web_search` and other tools at call time |
 
 ---
@@ -839,7 +854,7 @@ CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini, then m
 | Hardcoded Gemini endpoint | SAP AI Core Orchestration | Any OpenAI-compatible endpoint |
 | `eval` for shell commands | `execa` with timeout | `execa` with timeout |
 | No token tracking | No token tracking | Knowledge Graph — actual token counts per session |
-| Monolithic single file | 18-file modular architecture | 37-file modular architecture + KG + pricing + context guard + diff preview |
+| Monolithic single file | 18-file modular architecture | 40-file modular architecture + KG + pricing + context guard + diff preview + named sessions + workspace watcher |
 | Google Search grounding | Brave / Tavily web search | LLM-powered web_search + GitHub + pricing + retry + auto-compact |
 
 ---

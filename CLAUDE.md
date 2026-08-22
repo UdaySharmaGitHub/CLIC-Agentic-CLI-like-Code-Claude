@@ -13,6 +13,8 @@ pnpm start                      # Run compiled dist/index.js
 pnpm dev -- --model gpt-4o --max-steps 10 --yolo
 pnpm dev -- --kb "roles based Workflow/Gen_AI_Engineer.md"
 pnpm dev -- --full-history      # Load entire chat history (no message limit)
+pnpm dev -- --session work      # Load or create a named session called "work"
+pnpm dev -- --no-watch          # Disable workspace file watcher
 pnpm dev -- --paste             # Read prompt from stdin until EOF (Ctrl+D), run as single-turn
 pnpm dev -- "single-turn prompt here"   # Non-interactive one-shot mode
 cat file.txt | pnpm dev -- --paste     # Pipe file contents as single-turn prompt
@@ -23,6 +25,7 @@ pnpm test:zod                   # Alias for pnpm test
 pnpm test:validation-gate       # Zod validation-gate tests (test/zod-validation.test.ts)
 pnpm test:schemas               # Tool schema shape tests (test/tool-schemas.test.ts)
 pnpm test:edge-cases            # Edge-case tests (test/edge-cases.test.ts)
+pnpm test:watcher               # Watcher pure-helper tests (test/watcher.test.ts)
 ```
 
 TypeScript checking is implicit via `tsx` at runtime.
@@ -57,19 +60,21 @@ User input (REPL or single-turn)
 | `src/index.ts` | Entry point: CLI parsing (`commander`), setup wizard (`@clack/prompts`), live model picker, REPL loop, context-window guard (auto-compact at 80% usage) |
 | `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached; when >1 tool call arrives, asks user "parallel or sequential?" — parallel runs all via `Promise.all`, sequential runs one-by-one with individual confirms; supports `AbortSignal` for mid-run cancellation; records each turn in KG; returns `promptTokens` for context-bar rendering |
 | `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks, wraps API call in `withRetry()` (exponential backoff on 429/5xx), accepts optional `AbortSignal`, returns `LLMResponse` with `TokenUsage` |
-| `src/memory.ts` | In-memory `ChatMessage[]` store (OpenAI message format) + JSON persistence to `chat_history.json`; exports `pushMessage`, `getMessages`, `popMessage`, `clearMessages`, `messageCount`, `loadHistory`, `saveHistory`, `trimToLastUserMessage` |
+| `src/memory.ts` | In-memory `ChatMessage[]` store (OpenAI message format) + JSON persistence; exports `setHistoryFile`, `getHistoryFile`, `pushMessage`, `getMessages`, `popMessage`, `clearMessages`, `messageCount`, `loadHistory`, `saveHistory`, `trimToLastUserMessage` |
 | `src/knowledgeGraph.ts` | Token-tracking Knowledge Graph (session → turn → model/tools/usage); persisted to `token_graph.json`; exports `addNode`, `addEdge`, `getGraph`, `getNodeById`, `getNeighbors`, `getAllSessionNodes`, `getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`, `getSessionTokensByModel`, `getGlobalTokensByModel`, `loadGraph`, `saveGraph` |
 | `src/pricing.ts` | Real-time model pricing via LiteLLM proxy `/model/info`; exports `loadPricing`, `getCost`, `getPricing`, `formatCost`, `isPricingLoaded` — used by `/tokens` to show estimated USD cost per session and all-time |
-| `src/prompts.ts` | Builds the system prompt with live system context (OS, user, CWD, date), optionally injecting a knowledge base block |
-| `src/config.ts` | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
-| `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel, diff view, context progress bar; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `actionLabel` |
+| `src/prompts.ts` | Builds the system prompt with live system context (OS, user, CWD, date); `buildSystemPrompt(knowledgeBase?, recentFiles?)` injects a `Workspace File Activity` block when `recentFiles` is non-empty, and an optional knowledge base block |
+| `src/config.ts` | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
+| `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel, diff view, context progress bar; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `actionLabel`, `sessionNameBadge` |
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
+| `src/session.ts` | Named-session lifecycle: `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `hasSession()`, `setActive()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`, `assertValidName()` — persists `sessions.json` + per-session `sessions/<name>/` directories |
+| `src/watcher.ts` | Singleton workspace file watcher (chokidar); tracks externally-modified files in a 15-min rolling window; exports `startWatcher()`, `stopWatcher()`, `markRead()`, `getStalenessNote()`, `getRecentlyModified()` and pure helpers `formatAgo()`, `computeStalenessNote()`, `selectRecent()` |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
 | `src/tools/types.ts` | Shared tool types: `ConfirmFn`, `ToolResult`, `ToolDefinition` (includes `schema: z.ZodTypeAny` for Zod validation gate in `executeTool`) |
 | `src/tools/helpers.ts` | Shared utilities: `resolvePath()` (handles `~` expansion + `path.resolve`), `renderDiff()` (Claude Code-style full-width diff renderer used by `write_file` and `modify_file`) |
 | `src/tools/listModelfromOpenAI.ts` | `fetchAvailableModelOptions()` startup helper; **not** registered in tool registry |
 | `src/commands/index.ts` | Command registry — maps slash command name → module, exposes `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
-| `src/commands/types.ts` | Shared types: `SlashCommand`, `CommandContext` (includes `sessionId`, `callLLM`), `CommandAction` |
+| `src/commands/types.ts` | Shared types: `SlashCommand`, `CommandContext` (includes `sessionId`, `sessionName`, `callLLM`), `CommandAction` |
 
 ### Tool system
 
@@ -96,11 +101,11 @@ Each slash command is a self-contained module that exports `command: SlashComman
 - `description` / `usage` — shown in `/help`
 - `execute(ctx: CommandContext, args?: string) → Promise<CommandAction>`
 
-`CommandContext` carries: `model`, `maxSteps`, `showRaw`, `kbFile`, `systemPrompt`, `yolo`, `sessionId`, and `callLLM` (a single-shot LLM callback used by `/compact`).
+`CommandContext` carries: `model`, `maxSteps`, `showRaw`, `kbFile`, `systemPrompt`, `yolo`, `sessionId`, `sessionName`, and `callLLM` (a single-shot LLM callback used by `/compact`).
 
 `CommandAction` can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload). When `model` changes via `update`, `index.ts` recreates the OpenAI client.
 
-Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`.
+Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`, `/session` (alias `/s`).
 
 **`/compact` internals:** the core logic is extracted into `runCompact(callLLM, mode)` (exported from `src/commands/compact.ts`), which is also called directly by `index.ts` for automatic context-window compaction.
 
@@ -151,12 +156,16 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - When >1 tool call arrives in a single LLM response, the user is prompted **once**: "Run all N tools in parallel?" — `y` runs them concurrently via `Promise.all` (individual confirms auto-approved); `n` runs them sequentially with individual confirms.
 - `src/openai.ts` wraps the API call in `withRetry()` — exponential backoff (1 s → 2 s → 4 s + jitter) on HTTP 429, 500, 502, 503, 504, up to 4 attempts.
 - `src/pricing.ts` is loaded at startup via `loadPricing()`; the `/tokens` command calls `getCost(model, promptTokens, completionTokens)` to compute estimated USD spend per model and in total.
+- `--session <name>` flag loads or creates a named session at startup; sessions persist independently under `sessions/<name>/chat_history.json`. The active session is tracked in `sessions.json`.
+- **Workspace file watcher:** `startWatcher(cwd)` is called after setup (unless `--no-watch`). chokidar watches the CWD at depth 4, recording external file changes in a 15-min rolling window. Before each agent turn, `buildSystemPrompt` is refreshed with `getRecentlyModified()` to inject a `Workspace File Activity` block. `read_file` prepends a staleness note when a file changed since the agent last saw it. `stopWatcher()` is called on all exit paths. Pass `--no-watch` to disable for large repos, NFS mounts, or Docker.
 
 ### Generated files (gitignored)
 
 | File | Description |
 |---|---|
-| `chat_history.json` | Persisted `ChatMessage[]` conversation history |
+| `chat_history.json` | Persisted `ChatMessage[]` conversation history (legacy root; migrated on first run) |
+| `sessions/` | Per-session directory tree — each `sessions/<name>/chat_history.json` holds one session's history |
+| `sessions.json` | Named-session index (`{ active, sessions: SessionMeta[] }`) — tracks active session + all session names |
 | `token_graph.json` | Knowledge Graph of token usage across all sessions |
 | `.env` | Local environment variables (API keys) |
 | `dist/` | Compiled production output |
