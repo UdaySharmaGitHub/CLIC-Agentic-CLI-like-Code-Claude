@@ -12,6 +12,7 @@ import {
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath, renderDiff } from './helpers.js';
+import { markRead } from '../watcher.js';
 import {z} from 'zod';
 
 export const schema = z.object({
@@ -86,6 +87,7 @@ export async function execute(
     console.log(`  ${chalk.dim(`  Backup saved: ${filepath}.bak`)}`);
 
     await fs.writeFile(filepath, patched, 'utf-8');
+    markRead(filepath);
 
     printToolSuccess(`File modified: ${filepath}`);
     printSeparator();

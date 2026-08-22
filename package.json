@@ -14,7 +14,8 @@
     "test:zod": "tsx test/index.ts",
     "test:validation-gate": "tsx -e \"import { runValidationGateTests } from './test/zod-validation.test.js'; runValidationGateTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\"",
     "test:schemas": "tsx -e \"import { runToolSchemaTests } from './test/tool-schemas.test.js'; runToolSchemaTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\"",
-    "test:edge-cases": "tsx -e \"import { runEdgeCaseTests } from './test/edge-cases.test.js'; runEdgeCaseTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\""
+    "test:edge-cases": "tsx -e \"import { runEdgeCaseTests } from './test/edge-cases.test.js'; runEdgeCaseTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\"",
+    "test:watcher": "tsx test/watcher.test.ts"
   },
   "engines": {
     "node": ">=18"
@@ -22,6 +23,7 @@
   "dependencies": {
     "@clack/prompts": "^0.9.1",
     "chalk": "^5.4.1",
+    "chokidar": "^3.6.0",
     "commander": "^13.1.0",
     "diff": "^9.0.0",
     "dotenv": "^16.4.7",
