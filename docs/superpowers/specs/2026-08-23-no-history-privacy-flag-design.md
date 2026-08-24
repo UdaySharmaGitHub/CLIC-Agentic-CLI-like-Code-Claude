@@ -132,6 +132,25 @@ Follows the existing `test/*.test.ts` pattern:
 - Redacting secrets from terminal output (separate item #31).
 - Encrypting on-disk state when history *is* enabled.
 
+## Follow-up: Mid-session `/privacy` command
+
+The `--no-history` flag can only be set at launch. A `/privacy` slash command adds a
+mid-session toggle: it opens an arrow-key picker (`@clack/prompts` `select`, mirroring
+`/model` and `/role`) with `initialValue` set to the current mode so the picker shows
+which mode is active, and flips ephemeral state on selection.
+
+- **No `CommandContext` / `index.ts` changes** — privacy state is the `src/privacy.ts`
+  singleton, so `src/commands/privacy.ts` calls `setEphemeral()` directly and returns
+  `{ type: 'continue' }`.
+- **Partial-protection honesty (warnings on every transition):**
+  - Enabling (OFF→ON) does **not** erase turns already written to disk this session.
+  - Disabling (ON→OFF) writes the **full in-memory history — including turns recorded
+    while privacy was ON — on the next save.**
+- **Testability:** the pure `privacyTransition(from, to)` helper (change flag + warning
+  lines) is exported and unit-tested in `test/privacy.test.ts`; the interactive
+  `select()` UI is not unit-tested (consistent with `/model` and `/role`).
+- `/status` prints the current privacy state via `isEphemeral()`.
+
 ## Authoring Note — Created with the help of Superpowers Plugin from Claude Code
 
 This feature spec and GitHub issue were designed end-to-end using the
