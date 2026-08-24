@@ -9,6 +9,8 @@ import { messageCount } from "../memory.js";
 import type { SlashCommand } from "./types.js";
 import { printStatus } from "../ui.js";
 import { getContextLimit } from "../config.js";
+import { isEphemeral } from "../privacy.js";
+import chalk from "chalk";
 
 export const command:SlashCommand = {
     name:"/status",
@@ -23,6 +25,10 @@ export const command:SlashCommand = {
         contextLimit: getContextLimit(),
         sessionName: ctx.sessionName,
        });
+       console.log(isEphemeral()
+         ? chalk.magenta('  🔒 Privacy: ON — nothing is written to disk (ephemeral session)')
+         : chalk.dim('  🔓 Privacy: OFF — writing to disk normally'));
+       console.log();
        return {type:'continue'};
     },
 };

@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
 import { HISTORY_FILE } from './config.js';
+import { isEphemeral } from './privacy.js';
 
 // ── OpenAI-compatible message types (HyperSpace AI) ───────
 
@@ -72,6 +73,7 @@ export async function loadHistory(limit?: number): Promise<void> {
 
 
 export async function saveHistory(): Promise<void> {
+  if (isEphemeral()) return; // privacy mode — keep history in memory only
   try {
     await fs.mkdir(path.dirname(activeHistoryFile), { recursive: true });
     await fs.writeFile(activeHistoryFile, JSON.stringify(messages, null, 2), 'utf-8');

@@ -314,7 +314,7 @@ A deprecation notice is printed when `--yolo` is used:
 ## Priority 3 — Developer Experience (Medium Effort, Medium Impact)
 
 ### 8. Multiline Input Support
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/index.ts:223-234`
 - **Problem:** The REPL uses single-line readline. Pasting multi-line code or prompts breaks — only the first line is sent.
 - **Fix:** Detect unclosed input (trailing `\`, unclosed triple-backtick, or a configurable `>>>` continuation marker) and accumulate lines until a terminator:
@@ -330,7 +330,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 10. Streaming Abort Controller
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/openai.ts:72`
 - **Problem:** Once the LLM starts streaming, there is no way to cancel it. Ctrl+C kills the entire process instead of just the current stream.
 - **Fix:** Thread an `AbortController` signal through `streamMessage`:
@@ -350,7 +350,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 11. Zod Tool Input Validation
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/tools/index.ts:26`
 - **Problem:** `executeTool` accepts `input: any`. If the LLM returns malformed or missing arguments, the tool receives garbage and errors in unpredictable ways.
 - **Fix:** Add `zod` (`pnpm add zod`) and define a schema per tool. Validate at the registry boundary before calling `tool.execute()`:
@@ -366,7 +366,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 12. Named Sessions
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **Files:** `src/config.ts`, `src/index.ts`, `src/commands/`
 - **Problem:** A single global `chat_history.json` mixes all conversations. There is no way to have separate contexts for different projects or tasks.
 - **Fix:**
@@ -385,7 +385,7 @@ A deprecation notice is printed when `--yolo` is used:
 ## Priority 4 — Advanced / Power Features
 
 ### 13. Workspace File Watching
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** New module `src/watcher.ts`
 - **Problem:** The agent has no awareness of external file changes. If the user edits a file in their IDE while CLIC is running, the agent will use a stale version on the next read.
 - **Fix:** Use `fs.watch` on the CWD to track file modifications. When the agent next accesses a tracked file, prepend a note to the tool result:
@@ -396,13 +396,15 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 14. `--no-history` / Privacy Flag
-- [ ] **Status:** Not implemented
-- **File:** `src/index.ts`
+- [x] **Status:** Implemented
+- **Files:** `src/privacy.ts` (new), `src/memory.ts`, `src/knowledgeGraph.ts`, `src/session.ts`, `src/index.ts`, `src/commands/privacy.ts` (new), `src/commands/index.ts`, `src/commands/status.ts`
 - **Problem:** CLIC always persists the conversation to `chat_history.json`. There is no way to opt out for sensitive or ephemeral work.
-- **Fix:** Add a `--no-history` flag. When set, skip all `saveHistory()` / `loadHistory()` calls — keep messages in memory only for the duration of the session.
+- **Implemented Fix:** Added a `--no-history` flag that runs a **fully ephemeral session** — nothing is written to disk. Rather than guarding each of the ~8 `saveHistory()` / ~5 `saveGraph()` call sites individually, a single runtime flag lives in `src/privacy.ts` (`setEphemeral()` / `isEphemeral()`) and is checked at the write boundary inside `saveHistory()`, `saveGraph()`, and `saveIndex()` — each early-returns when ephemeral. This neutralizes every write path automatically (single-turn, `--paste`, SIGINT handlers, auto-compact, `/session` switches). Prior context is still **loaded once** at startup (reads are always allowed); in ephemeral mode `index.ts` also skips the disk-mutating setup steps (`migrateLegacy`, `ensureSession`, `setActive`) and prints a privacy banner. Combined with `--session <name>`, it warns and runs that session read-only.
   ```bash
   pnpm dev --no-history   # nothing written to disk
   ```
+- **Mid-session toggle (`/privacy` command):** `/privacy` opens an arrow-key picker showing the current mode and lets the user flip ephemeral mode on/off without restarting (calls `setEphemeral()` directly; no `CommandContext`/`index.ts` change). Because mid-session protection is only partial, each transition warns loudly: enabling does not erase turns already saved this session; disabling writes the full in-memory history (including turns recorded while privacy was ON) on the next save. `/status` shows the current privacy state.
+- **Tests:** `test/privacy.test.ts` (`pnpm test:privacy`) — asserts the three save functions write nothing when ephemeral, `loadHistory` still populates messages, and the pure `privacyTransition()` helper reports the right change/warnings for each transition.
 
 ---
 
@@ -446,7 +448,7 @@ A deprecation notice is printed when `--yolo` is used:
 | 11 | Zod Tool Input Validation | P3 | ⬜ Not started |
 | 12 | Named Sessions | P3 | ⬜ Not started |
 | 13 | Workspace File Watching | P4 | ⬜ Not started |
-| 14 | `--no-history` Privacy Flag | P4 | ⬜ Not started |
+| 14 | `--no-history` Privacy Flag | P4 | ✅ Implemented |
 | 15 | Plugin / External Tool Loading | P4 | ⬜ Not started |
 | 16 | Conversation Export | P4 | ⬜ Not started |
 | **41** | **Modes / Autonomy Boundary** | **P2** | **⬜ Not started** |
@@ -838,7 +840,7 @@ A deprecation notice is printed when `--yolo` is used:
 | 11 | Zod Tool Input Validation | Correctness | P3 | ⬜ Not started |
 | 12 | Named Sessions | UX | P3 | ⬜ Not started |
 | 13 | Workspace File Watching | UX | P4 | ⬜ Not started |
-| 14 | `--no-history` Privacy Flag | Privacy | P4 | ⬜ Not started |
+| 14 | `--no-history` Privacy Flag | Privacy | P4 | ✅ Implemented |
 | 15 | Plugin / External Tool Loading | Extensibility | P4 | ⬜ Not started |
 | 16 | Conversation Export | UX | P4 | ⬜ Not started |
 | 17 | Fix `web_search` (real API) | **Bug** | **P0** | ⬜ Not started |

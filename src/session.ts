@@ -18,6 +18,7 @@ import {
   sessionHistoryPath,
 } from './config.js';
 import { getGraph, saveGraph, getSessionNodeByName } from './knowledgeGraph.js';
+import { isEphemeral } from './privacy.js';
 
 export interface SessionMeta {
   name: string;
@@ -68,6 +69,7 @@ export async function loadIndex(): Promise<void> {
 }
 
 export async function saveIndex(): Promise<void> {
+  if (isEphemeral()) return; // privacy mode — keep the session index in memory only
   try {
     await fs.mkdir(SESSIONS_DIR, { recursive: true });
     await fs.writeFile(SESSIONS_INDEX_FILE, JSON.stringify(index, null, 2), 'utf-8');
@@ -110,7 +112,9 @@ export async function createSession(name: string): Promise<SessionMeta> {
   if (hasSession(name)) {
     throw new Error(`Session "${name}" already exists.`);
   }
-  await fs.mkdir(path.join(SESSIONS_DIR, name), { recursive: true });
+  if (!isEphemeral()) {
+    await fs.mkdir(path.join(SESSIONS_DIR, name), { recursive: true });
+  }
   const meta: SessionMeta = { name, createdAt: nowISO(), lastActiveAt: nowISO() };
   index.sessions.push(meta);
   await saveIndex();

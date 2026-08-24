@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import fs from 'node:fs/promises';
+import { isEphemeral } from './privacy.js';
 
 export type NodeType = 'session' | 'turn' | 'model' | 'tool' | 'token_usage';
 export type EdgeType = 'HAS_TURN' | 'USED_MODEL' | 'CALLED_TOOL' | 'HAS_USAGE';
@@ -169,6 +170,7 @@ export async function loadGraph(file: string): Promise<void> {
 }
 
 export async function saveGraph(file: string): Promise<void> {
+  if (isEphemeral()) return; // privacy mode — keep the token graph in memory only
   try {
     await fs.writeFile(file, JSON.stringify(graph, null, 2), 'utf-8');
   } catch {

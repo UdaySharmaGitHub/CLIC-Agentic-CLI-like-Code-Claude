@@ -11,6 +11,7 @@ import { runValidationGateTests } from './zod-validation.test.js';
 import { runToolSchemaTests } from './tool-schemas.test.js';
 import { runEdgeCaseTests } from './edge-cases.test.js';
 import { runWatcherTests } from './watcher.test.js';
+import { runPrivacyTests } from './privacy.test.js';
 
 /**
  * Banner for test output
@@ -33,9 +34,10 @@ function printSummary(
   toolSchemas: { passed: number; failed: number },
   edgeCases: { passed: number; failed: number },
   watcher: { passed: number; failed: number },
+  privacy: { passed: number; failed: number },
 ) {
-  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed;
-  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed;
+  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed + privacy.passed;
+  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed;
   const totalTests = totalPassed + totalFailed;
 
   console.log(`
@@ -47,6 +49,7 @@ function printSummary(
 ║  Tool Schema Tests            : ${toolSchemas.passed.toString().padEnd(2)} passed, ${toolSchemas.failed.toString().padEnd(2)} failed                ║
 ║  Edge Case Tests              : ${edgeCases.passed.toString().padEnd(2)} passed, ${edgeCases.failed.toString().padEnd(2)} failed                ║
 ║  Watcher Pure-Helper Tests    : ${watcher.passed.toString().padEnd(2)} passed, ${watcher.failed.toString().padEnd(2)} failed                ║
+║  Privacy / No-History Tests   : ${privacy.passed.toString().padEnd(2)} passed, ${privacy.failed.toString().padEnd(2)} failed                ║
 ║                                                                            ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
 ║  TOTAL                        : ${totalPassed.toString().padEnd(2)} passed, ${totalFailed.toString().padEnd(2)} failed (${totalTests} tests)           ║
@@ -77,12 +80,13 @@ async function runAllTests() {
     const toolSchemas = await runToolSchemaTests();
     const edgeCases = await runEdgeCaseTests();
     const watcher = await runWatcherTests();
+    const privacy = await runPrivacyTests();
 
     // Print summary
-    printSummary(validationGate, toolSchemas, edgeCases, watcher);
+    printSummary(validationGate, toolSchemas, edgeCases, watcher, privacy);
 
     // Exit with appropriate code
-    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed;
+    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed;
     process.exit(totalFailed > 0 ? 1 : 0);
   } catch (err) {
     console.error('❌ Test runner failed:', err);
