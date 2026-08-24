@@ -19,6 +19,7 @@ import { startWatcher, stopWatcher, getRecentlyModified } from './watcher.js';
 import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE, DEFAULT_SESSION, sessionHistoryPath } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage, setHistoryFile, clearMessages } from './memory.js';
 import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
+import { setEphemeral } from './privacy.js';
 import {
   loadIndex,
   migrateLegacy,
@@ -57,6 +58,7 @@ const program = new Command()
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
   .option('--full-history', 'Load entire chat history without a message limit')
   .option('--session <name>', 'Named session to load or create at startup')
+  .option('--no-history', 'Run ephemerally — load prior context read-only, write nothing to disk')
   .option('--no-watch', 'Disable workspace file watcher (for large repos or NFS/Docker)')
   .option('-p, --paste', 'Read prompt from stdin until EOF (Ctrl+D), then run as single-turn')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
@@ -71,12 +73,15 @@ async function main(prompt: string | undefined, opts: {
   yolo?: boolean;
   fullHistory?: boolean;
   session?: string;
+  history?: boolean;        // commander maps --no-history → history: false
   watch?: boolean;          // commander maps --no-watch → watch: false
   paste?: boolean;          // ← add this
 }) {
   let model = opts.model;
   const maxSteps = parseInt(opts.maxSteps, 10) || DEFAULT_MAX_STEPS;
   const yolo = opts.yolo ?? false;
+  const ephemeral = opts.history === false;
+  setEphemeral(ephemeral);
 
   // ── Banner ────────────────────────────────────────────────────────────────
   await printBanner();
@@ -209,14 +214,16 @@ async function main(prompt: string | undefined, opts: {
 
   // Resolve the active named session (migrate legacy history on first run).
   await loadIndex();
-  await migrateLegacy();
+  if (!ephemeral) await migrateLegacy();
   let sessionName = opts.session ?? getActive() ?? DEFAULT_SESSION;
-  if (opts.session && !hasSession(opts.session)) {
-    await ensureSession(opts.session);
+  if (!ephemeral) {
+    if (opts.session && !hasSession(opts.session)) {
+      await ensureSession(opts.session);
+    }
+    await setActive(sessionName);
   }
-  await setActive(sessionName);
 
-  // Point history at the active session's file, then load it.
+  // Point history at the active session's file, then load it (read-only under privacy mode).
   setHistoryFile(sessionHistoryPath(sessionName));
   await loadHistory(opts.fullHistory ? undefined : HISTORY_LOAD_LIMIT);
 
@@ -225,6 +232,12 @@ async function main(prompt: string | undefined, opts: {
 
   console.log(chalk.dim(`  System: ${process.platform} (${process.arch}) | Model: ${model}`));
   console.log(chalk.green(`  🔖 Session: `) + sessionNameBadge(sessionName) + chalk.dim(` (${listSessions().length} total)`));
+  if (ephemeral) {
+    console.log(chalk.magenta.bold('  🔒 Privacy: History, token graph, and session index will NOT be written to disk.'));
+    if (opts.session) {
+      console.log(chalk.dim(`     "${sessionName}" runs ephemeral — prior history loaded read-only, nothing saved.`));
+    }
+  }
   if (knowledgeBase) {
     console.log(chalk.green(`  📚 Knowledge Base: Active`) + chalk.dim(` (from ${kbFile})`));
   } else {

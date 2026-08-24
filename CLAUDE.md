@@ -14,6 +14,7 @@ pnpm dev -- --model gpt-4o --max-steps 10 --yolo
 pnpm dev -- --kb "roles based Workflow/Gen_AI_Engineer.md"
 pnpm dev -- --full-history      # Load entire chat history (no message limit)
 pnpm dev -- --session work      # Load or create a named session called "work"
+pnpm dev -- --no-history        # Ephemeral session — nothing written to disk
 pnpm dev -- --no-watch          # Disable workspace file watcher
 pnpm dev -- --paste             # Read prompt from stdin until EOF (Ctrl+D), run as single-turn
 pnpm dev -- "single-turn prompt here"   # Non-interactive one-shot mode
@@ -26,6 +27,7 @@ pnpm test:validation-gate       # Zod validation-gate tests (test/zod-validation
 pnpm test:schemas               # Tool schema shape tests (test/tool-schemas.test.ts)
 pnpm test:edge-cases            # Edge-case tests (test/edge-cases.test.ts)
 pnpm test:watcher               # Watcher pure-helper tests (test/watcher.test.ts)
+pnpm test:privacy               # Privacy / --no-history ephemeral-mode tests (test/privacy.test.ts)
 ```
 
 TypeScript checking is implicit via `tsx` at runtime.
@@ -67,6 +69,7 @@ User input (REPL or single-turn)
 | `src/config.ts` | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel, diff view, context progress bar; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `actionLabel`, `sessionNameBadge` |
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
+| `src/privacy.ts` | Runtime "ephemeral session" flag for `--no-history`; exports `setEphemeral()`, `isEphemeral()`. Dependency-free. `saveHistory()`, `saveGraph()`, and `saveIndex()` early-return when `isEphemeral()` so nothing is persisted |
 | `src/session.ts` | Named-session lifecycle: `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `hasSession()`, `setActive()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`, `assertValidName()` — persists `sessions.json` + per-session `sessions/<name>/` directories |
 | `src/watcher.ts` | Singleton workspace file watcher (chokidar); tracks externally-modified files in a 15-min rolling window; exports `startWatcher()`, `stopWatcher()`, `markRead()`, `getStalenessNote()`, `getRecentlyModified()` and pure helpers `formatAgo()`, `computeStalenessNote()`, `selectRecent()` |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
@@ -105,7 +108,7 @@ Each slash command is a self-contained module that exports `command: SlashComman
 
 `CommandAction` can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload). When `model` changes via `update`, `index.ts` recreates the OpenAI client.
 
-Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`, `/session` (alias `/s`).
+Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`, `/session` (alias `/s`), `/privacy`.
 
 **`/compact` internals:** the core logic is extracted into `runCompact(callLLM, mode)` (exported from `src/commands/compact.ts`), which is also called directly by `index.ts` for automatic context-window compaction.
 
@@ -158,6 +161,8 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - `src/pricing.ts` is loaded at startup via `loadPricing()`; the `/tokens` command calls `getCost(model, promptTokens, completionTokens)` to compute estimated USD spend per model and in total.
 - `--session <name>` flag loads or creates a named session at startup; sessions persist independently under `sessions/<name>/chat_history.json`. The active session is tracked in `sessions.json`.
 - **Workspace file watcher:** `startWatcher(cwd)` is called after setup (unless `--no-watch`). chokidar watches the CWD at depth 4, recording external file changes in a 15-min rolling window. Before each agent turn, `buildSystemPrompt` is refreshed with `getRecentlyModified()` to inject a `Workspace File Activity` block. `read_file` prepends a staleness note when a file changed since the agent last saw it. `stopWatcher()` is called on all exit paths. Pass `--no-watch` to disable for large repos, NFS mounts, or Docker.
+- **Privacy / `--no-history` (ephemeral session):** pass `--no-history` to run without persisting anything to disk. `index.ts` calls `setEphemeral(true)` (from `src/privacy.ts`) at startup; `saveHistory()`, `saveGraph()`, and `saveIndex()` then early-return, so chat history, the token graph, and the session index are never written — covering every write path (single-turn, `--paste`, SIGINT, auto-compact, `/session` switches). Reads still work: prior context is loaded once at startup, and in ephemeral mode `index.ts` skips the disk-mutating setup steps (`migrateLegacy`, `ensureSession`, `setActive`) and prints a `🔒 Privacy` banner. Combined with `--session <name>`, it warns and loads that session read-only.
+- **Mid-session `/privacy` command:** `/privacy` opens an arrow-key picker (via `@clack/prompts` `select`, mirroring `/model` and `/role`) that shows the current mode (`initialValue`) and toggles ephemeral mode without a restart. It calls `setEphemeral()` on the `src/privacy.ts` singleton directly — no `CommandContext` field or `index.ts` handler branch. The pure `privacyTransition(from, to)` helper (exported from `src/commands/privacy.ts`, unit-tested in `test/privacy.test.ts`) computes the warning lines. Because protection is only partial mid-session, transitions warn loudly: enabling does **not** erase turns already written this session; disabling writes the **full in-memory history — including turns recorded while privacy was ON — on the next save**. `/status` shows the current privacy state.
 
 ### Generated files (gitignored)
 
