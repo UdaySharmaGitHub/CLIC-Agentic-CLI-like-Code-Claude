@@ -22,6 +22,7 @@ import { command as tokensCmd } from './tokens.js';
 import { command as roleCmd } from './role.js';
 import { command as sessionCmd } from './session.js';
 import { command as privacyCmd } from './privacy.js';
+import { command as exportCmd } from './export.js';
 import { SlashCommand, CommandContext, CommandAction } from './types.js';
 
 // ── Registry array — add new commands here ───────────────────────────────────
@@ -40,6 +41,7 @@ const commands: SlashCommand[] = [
   roleCmd,
   sessionCmd,
   privacyCmd,
+  exportCmd,
 ];
 
 // ── Build name → command lookup (including aliases) ──────────────────────────
