@@ -16,7 +16,8 @@
     "test:schemas": "tsx -e \"import { runToolSchemaTests } from './test/tool-schemas.test.js'; runToolSchemaTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\"",
     "test:edge-cases": "tsx -e \"import { runEdgeCaseTests } from './test/edge-cases.test.js'; runEdgeCaseTests().then(r => process.exit(r.failed > 0 ? 1 : 0))\"",
     "test:watcher": "tsx test/watcher.test.ts",
-    "test:privacy": "tsx test/privacy.test.ts"
+    "test:privacy": "tsx test/privacy.test.ts",
+    "test:export": "tsx test/export.test.ts"
   },
   "engines": {
     "node": ">=18"

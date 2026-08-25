@@ -187,7 +187,7 @@ schema.safeParse(input) ← VALIDATION GATE
 To verify the implementation yourself:
 
 ```bash
-cd /Users/I578366/Desktop/My\ Workspace/Personal\ Project/CLIC-Agentic-CLI-like-Code-Claude
+cd /Project/CLIC-Agentic-CLI-like-Code-Claude
 npx tsx zod-schema-test.mts  # Run 28 schema validation tests
 pnpm build                     # Verify production build
 npx tsc --noEmit              # Verify TypeScript
