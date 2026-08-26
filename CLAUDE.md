@@ -28,6 +28,7 @@ pnpm test:schemas               # Tool schema shape tests (test/tool-schemas.tes
 pnpm test:edge-cases            # Edge-case tests (test/edge-cases.test.ts)
 pnpm test:watcher               # Watcher pure-helper tests (test/watcher.test.ts)
 pnpm test:privacy               # Privacy / --no-history ephemeral-mode tests (test/privacy.test.ts)
+pnpm test:export                # Conversation export formatter tests (test/export.test.ts)
 ```
 
 TypeScript checking is implicit via `tsx` at runtime.
@@ -108,7 +109,7 @@ Each slash command is a self-contained module that exports `command: SlashComman
 
 `CommandAction` can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload). When `model` changes via `update`, `index.ts` recreates the OpenAI client.
 
-Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`, `/session` (alias `/s`), `/privacy`.
+Registered commands: `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`, `/session` (alias `/s`), `/privacy`, `/export`.
 
 **`/compact` internals:** the core logic is extracted into `runCompact(callLLM, mode)` (exported from `src/commands/compact.ts`), which is also called directly by `index.ts` for automatic context-window compaction.
 
@@ -175,3 +176,4 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 | `.env` | Local environment variables (API keys) |
 | `dist/` | Compiled production output |
 | `*.bak` | Backup files created by the `modify_file` tool |
+| `exports/` | Conversation exports written by `/export` — `clic-export-<date>.[md|json|html]` |

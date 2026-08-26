@@ -299,7 +299,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 7. Auto Project Context Injection (CLIC.md / AGENTS.md)
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/prompts.ts`
 - **Problem:** The agent has no automatic awareness of the project it's running in. The user must manually load a KB file every time.
 - **Fix:** At startup, auto-detect and inject into the system prompt:
@@ -409,7 +409,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 15. Plugin / External Tool Loading
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** `src/tools/index.ts`
 - **Problem:** Adding a new tool requires editing source files and rebuilding. Power users cannot extend CLIC without forking.
 - **Fix:** At startup, scan `~/.clic/tools/*.js` and dynamically `import()` each file. Any module exporting a valid `{ definition, execute }` pair is registered automatically alongside built-in tools.
@@ -417,7 +417,7 @@ A deprecation notice is printed when `--yolo` is used:
 ---
 
 ### 16. Conversation Export
-- [ ] **Status:** Not implemented
+- [x] **Status:** Not implemented
 - **File:** New command `src/commands/export.ts`
 - **Problem:** There is no way to export or share a conversation.
 - **Fix:** Add `/export [format]` command supporting:
@@ -441,16 +441,16 @@ A deprecation notice is printed when `--yolo` is used:
 | 4 | API Retry + Backoff | P1 | ✅ Implemented |
 | 5 | Auto Context Guard + Auto-Compact | P2 | ✅ Implemented |
 | 6 | Diff Display for File Writes | P2 | ✅ Implemented |
-| 7 | Auto Project Context Injection | P2 | ⬜ Not started |
-| 8 | Multiline Input Support | P3 | ⬜ Not started |
-| 9 | Cost Estimation in /tokens | P1 | ⬜ Not started |
-| 10 | Streaming Abort Controller | P3 | ⬜ Not started |
-| 11 | Zod Tool Input Validation | P3 | ⬜ Not started |
-| 12 | Named Sessions | P3 | ⬜ Not started |
-| 13 | Workspace File Watching | P4 | ⬜ Not started |
+| 7 | Auto Project Context Injection | P2 | ✅ Implemented |
+| 8 | Multiline Input Support | P3 | ✅ Implemented |
+| 9 | Cost Estimation in /tokens | P1 | ✅ Implemented |
+| 10 | Streaming Abort Controller | P3 | ✅ Implemented |
+| 11 | Zod Tool Input Validation | P3 | ✅ Implemented |
+| 12 | Named Sessions | P3 | ✅ Implemented |
+| 13 | Workspace File Watching | P4 | ✅ Implemented |
 | 14 | `--no-history` Privacy Flag | P4 | ✅ Implemented |
-| 15 | Plugin / External Tool Loading | P4 | ⬜ Not started |
-| 16 | Conversation Export | P4 | ⬜ Not started |
+| 15 | Plugin / External Tool Loading | P4 | ✅ Implemented |
+| 16 | Conversation Export | P4 | ✅ Implemented |
 | **41** | **Modes / Autonomy Boundary** | **P2** | **⬜ Not started** |
 
 ---

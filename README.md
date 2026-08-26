@@ -63,6 +63,8 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | 🪟 Context Guard | Monitors context fill % after every turn; auto-compacts at 80% to prevent cutoff |
 | 🔍 Diff Preview | `write_file` and `modify_file` render a full-width unified diff before confirmation |
 | 🗂️ Named Sessions | Multiple independent chat histories via `--session <name>` or `/session` — create, switch, rename, delete sessions without losing context |
+| 🔒 Privacy / Ephemeral Mode | `--no-history` starts an ephemeral session — nothing written to disk (chat history, token graph, session index all suppressed). Toggle mid-session with `/privacy` |
+| 📤 Conversation Export | `/export [markdown\|json\|html]` serialises the active conversation to a self-contained file in `exports/` |
 | 👁️ Workspace File Watching | chokidar watches CWD for external edits; injects a `Workspace File Activity` block into the system prompt each turn and prepends an inline staleness note on `read_file` when a file changed since the agent last saw it; disable with `--no-watch` |
 
 ---
@@ -101,6 +103,7 @@ clic/
 │   ├── memory.ts             ← Chat history management (load/save/push/pop/clear/trim + setHistoryFile)
 │   ├── session.ts            ← Named-session lifecycle (create/switch/rename/delete + sessions.json index)
 │   ├── watcher.ts            ← Singleton workspace file watcher (chokidar; staleness notes + ambient context)
+│   ├── privacy.ts            ← Ephemeral-session flag (setEphemeral / isEphemeral; dependency-free singleton)
 │   ├── safety.ts             ← Blocked commands + protected paths
 │   ├── config.ts             ← Env loading, constants, context limits, session paths, KB loader
 │   ├── ui.ts                 ← Banner, help, status, context bar, diff view, chalk formatters
@@ -119,6 +122,8 @@ clic/
 │   │   ├── raw.ts            ← /raw    — toggle debug output
 │   │   ├── help.ts           ← /help   — show help menu
 │   │   ├── session.ts        ← /session — create, switch, rename, delete named sessions
+│   │   ├── privacy.ts        ← /privacy — toggle ephemeral mode mid-session
+│   │   ├── export.ts         ← /export  — export conversation to markdown / json / html
 │   │   └── exit.ts           ← /exit   — quit agent
 │   └── tools/
 │       ├── index.ts          ← Tool registry + router
@@ -143,6 +148,7 @@ clic/
 ├── setup.sh                  ← Original bash version (v4.1)
 ├── sessions/                 ← Per-session history dirs (auto-generated, gitignored)
 ├── sessions.json             ← Named-session index (auto-generated, gitignored)
+├── exports/                  ← Conversation exports from /export (auto-generated, gitignored)
 ├── chat_history.json         ← Legacy root history (migrated to sessions/ on first run, gitignored)
 └── token_graph.json          ← Token usage Knowledge Graph (auto-generated, gitignored)
 ```
@@ -345,6 +351,7 @@ Registered tools:
 | **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `setHistoryFile()`, `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory(limit?)`, `saveHistory()`, `trimToLastUserMessage()` |
 | **`session.ts`** | Named-session lifecycle — `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `setActive()`, `hasSession()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`. Persists `sessions.json` + per-session `sessions/<name>/` directories |
 | **`watcher.ts`** | Singleton chokidar watcher — `startWatcher(cwd)`, `stopWatcher()`, `markRead(filepath)`, `getStalenessNote(filepath)`, `getRecentlyModified(windowMs?)`. Also exports pure helpers for testing: `formatAgo()`, `computeStalenessNote()`, `selectRecent()` |
+| **`privacy.ts`** | Dependency-free singleton for ephemeral-session mode — `setEphemeral(value)`, `isEphemeral()`. Imported by `memory.ts`, `knowledgeGraph.ts`, and `session.ts` to skip all disk writes when enabled |
 | **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
 | **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `printContextBar()`, `actionLabel()`, `sessionNameBadge()` |
@@ -444,6 +451,7 @@ Runs the prompt, outputs the result, and exits.
 | `--yolo` | `false` | Auto-approve all actions (skip confirmations) |
 | `--full-history` | `false` | Load entire chat history (default: last 10 messages) |
 | `--session <name>` | `default` | Load or create a named session; names may contain letters, digits, dashes, underscores |
+| `--no-history` | history on | Start an ephemeral session — nothing persisted to disk (chat history, token graph, and session index writes are all suppressed) |
 | `--no-watch` | watch on | Disable workspace file watcher (recommended for large repos, NFS mounts, or Docker) |
 | `-p, --paste` | `false` | Read prompt from stdin until EOF (Ctrl+D) and run as single-turn; works with pipes: `cat file.txt \| pnpm dev --paste` |
 
@@ -488,6 +496,8 @@ pnpm dev -- --model gemini-2.5-pro
 | `/model [name]` | `/m` | Switch LLM model mid-session (shows picker if no name given) |
 | `/role` | — | Switch knowledge base / persona without restarting |
 | `/session [new\|switch\|rename\|delete] [name]` | `/s` | Manage named sessions — create, switch, rename, or delete |
+| `/privacy` | — | Toggle ephemeral mode mid-session (enable: suppresses future disk writes; disable: re-enables writes and flushes full in-memory history on next save) |
+| `/export [markdown\|json\|html]` | — | Export the active conversation to `exports/clic-export-<date>.[md\|json\|html]` (current window or full history) |
 | `/undo` | — | Remove the last user + assistant exchange from history |
 | `/retry` | `/r` | Regenerate the last response (re-runs last user message) |
 | `/tokens` | — | Show actual token usage (from Knowledge Graph) + context size estimate |
@@ -854,7 +864,7 @@ CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini, then m
 | Hardcoded Gemini endpoint | SAP AI Core Orchestration | Any OpenAI-compatible endpoint |
 | `eval` for shell commands | `execa` with timeout | `execa` with timeout |
 | No token tracking | No token tracking | Knowledge Graph — actual token counts per session |
-| Monolithic single file | 18-file modular architecture | 40-file modular architecture + KG + pricing + context guard + diff preview + named sessions + workspace watcher |
+| Monolithic single file | 18-file modular architecture | 43-file modular architecture + KG + pricing + context guard + diff preview + named sessions + workspace watcher |
 | Google Search grounding | Brave / Tavily web search | LLM-powered web_search + GitHub + pricing + retry + auto-compact |
 
 ---
