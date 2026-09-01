@@ -98,6 +98,12 @@ export const CONTEXT_GUARD_THRESHOLD = 0.80;     // trigger auto-compact at 80%
 // LoadHistory Config Limit: If the history file has more than this number of messages, only the last N messages will be loaded. This helps to keep the conversation context manageable and prevents exceeding model context limits.
 export const HISTORY_LOAD_LIMIT = 10;  // Load only the last 100 messages from history file
 
+// ── Terminal pool constants ────────────────────────────────────────────────────
+export const TERMINAL_SHELL         = process.env.SHELL || 'bash';
+export const TERMINAL_MAX           = 8;          // max concurrent terminals
+export const TERMINAL_CMD_TIMEOUT_MS = 120_000;   // per-command sentinel timeout (ms)
+export const TERMINAL_BUFFER_LINES  = 2_000;      // ring-buffer size per terminal
+
 export function getContextLimit(): number {
   const model = process.env.CLIC_MODEL ?? '';
   return MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;

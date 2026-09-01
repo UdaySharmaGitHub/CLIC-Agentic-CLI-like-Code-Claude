@@ -20,6 +20,8 @@ import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE, 
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage, setHistoryFile, clearMessages } from './memory.js';
 import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
 import { setEphemeral } from './privacy.js';
+import { terminalManager } from './terminal.js';
+import { disableTerminals } from './tools/runCommand.js';
 import {
   loadIndex,
   migrateLegacy,
@@ -61,6 +63,7 @@ const program = new Command()
   .option('--no-history', 'Run ephemerally — load prior context read-only, write nothing to disk')
   .option('--no-watch', 'Disable workspace file watcher (for large repos or NFS/Docker)')
   .option('-p, --paste', 'Read prompt from stdin until EOF (Ctrl+D), then run as single-turn')
+  .option('--no-terminals', 'Disable persistent PTY terminals — fall back to legacy one-shot execa for run_command')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
   .action(main);
 
@@ -75,6 +78,7 @@ async function main(prompt: string | undefined, opts: {
   session?: string;
   history?: boolean;        // commander maps --no-history → history: false
   watch?: boolean;          // commander maps --no-watch → watch: false
+  terminals?: boolean;      // commander maps --no-terminals → terminals: false
   paste?: boolean;          // ← add this
 }) {
   let model = opts.model;
@@ -82,6 +86,11 @@ async function main(prompt: string | undefined, opts: {
   const yolo = opts.yolo ?? false;
   const ephemeral = opts.history === false;
   setEphemeral(ephemeral);
+
+  // Disable persistent terminals if --no-terminals was passed
+  if (opts.terminals === false) {
+    disableTerminals();
+  }
 
   // ── Banner ────────────────────────────────────────────────────────────────
   await printBanner();
@@ -205,6 +214,10 @@ async function main(prompt: string | undefined, opts: {
     console.log(chalk.dim('  ⚡ File watcher: Disabled (--no-watch)'));
   }
 
+  if (opts.terminals === false) {
+    console.log(chalk.dim('  ⚡ Terminals: Disabled (--no-terminals) — using legacy one-shot execa'));
+  }
+
   // ── Build system prompt + client ──────────────────────────────────────────
   let systemPrompt = buildSystemPrompt(knowledgeBase);
   let client = createClient(model);
@@ -288,6 +301,7 @@ async function main(prompt: string | undefined, opts: {
     await saveHistory();
     await saveGraph(TOKEN_GRAPH_FILE);
     stopWatcher();
+    await terminalManager.killAll();
     singleRl.close();
     return;
   }
@@ -305,6 +319,7 @@ async function main(prompt: string | undefined, opts: {
     console.log(chalk.dim('\n  Saving and exiting...'));
     clearInterval(keepAlive);
     stopWatcher();
+    await terminalManager.killAll();
     await saveHistory();
     await saveGraph(TOKEN_GRAPH_FILE);
     process.exit(0);
@@ -400,6 +415,7 @@ async function main(prompt: string | undefined, opts: {
       if (process.stdin.destroyed) {
         clearInterval(keepAlive);
         stopWatcher();
+        await terminalManager.killAll();
         break;
       }
       continue;
@@ -415,6 +431,7 @@ async function main(prompt: string | undefined, opts: {
       if (result.type === 'exit') {
         clearInterval(keepAlive);
         stopWatcher();
+        await terminalManager.killAll();
         await saveHistory();
         await saveGraph(TOKEN_GRAPH_FILE);
         break;

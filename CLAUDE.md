@@ -16,6 +16,7 @@ pnpm dev -- --full-history      # Load entire chat history (no message limit)
 pnpm dev -- --session work      # Load or create a named session called "work"
 pnpm dev -- --no-history        # Ephemeral session — nothing written to disk
 pnpm dev -- --no-watch          # Disable workspace file watcher
+pnpm dev -- --no-terminals      # Disable node-pty terminals; fall back to legacy one-shot execa
 pnpm dev -- --paste             # Read prompt from stdin until EOF (Ctrl+D), run as single-turn
 pnpm dev -- "single-turn prompt here"   # Non-interactive one-shot mode
 cat file.txt | pnpm dev -- --paste     # Pipe file contents as single-turn prompt
@@ -29,6 +30,7 @@ pnpm test:edge-cases            # Edge-case tests (test/edge-cases.test.ts)
 pnpm test:watcher               # Watcher pure-helper tests (test/watcher.test.ts)
 pnpm test:privacy               # Privacy / --no-history ephemeral-mode tests (test/privacy.test.ts)
 pnpm test:export                # Conversation export formatter tests (test/export.test.ts)
+pnpm test:terminal              # Terminal module tests — pure helpers + TerminalManager integration (test/terminal.test.ts)
 ```
 
 TypeScript checking is implicit via `tsx` at runtime.
@@ -72,11 +74,13 @@ User input (REPL or single-turn)
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
 | `src/privacy.ts` | Runtime "ephemeral session" flag for `--no-history`; exports `setEphemeral()`, `isEphemeral()`. Dependency-free. `saveHistory()`, `saveGraph()`, and `saveIndex()` early-return when `isEphemeral()` so nothing is persisted |
 | `src/session.ts` | Named-session lifecycle: `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `hasSession()`, `setActive()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`, `assertValidName()` — persists `sessions.json` + per-session `sessions/<name>/` directories |
+| `src/terminal.ts` | `TerminalManager` singleton — pool of persistent node-pty PTY shells; each terminal serialises commands via a per-entry promise-queue mutex while different terminals run in parallel; sentinel completion protocol detects exit code; exports pure helpers `stripAnsi()`, `RingBuffer`, `assertValidTerminalName()` and singleton `terminalManager` |
 | `src/watcher.ts` | Singleton workspace file watcher (chokidar); tracks externally-modified files in a 15-min rolling window; exports `startWatcher()`, `stopWatcher()`, `markRead()`, `getStalenessNote()`, `getRecentlyModified()` and pure helpers `formatAgo()`, `computeStalenessNote()`, `selectRecent()` |
 | `src/tools/index.ts` | Tool registry — maps name → module, exposes `getToolDefinitions()`, `executeTool()`, `getToolNames()` |
 | `src/tools/types.ts` | Shared tool types: `ConfirmFn`, `ToolResult`, `ToolDefinition` (includes `schema: z.ZodTypeAny` for Zod validation gate in `executeTool`) |
 | `src/tools/helpers.ts` | Shared utilities: `resolvePath()` (handles `~` expansion + `path.resolve`), `renderDiff()` (Claude Code-style full-width diff renderer used by `write_file` and `modify_file`) |
 | `src/tools/listModelfromOpenAI.ts` | `fetchAvailableModelOptions()` startup helper; **not** registered in tool registry |
+| `src/tools/terminal.ts` | Multiplexed `terminal` tool — discriminated-union Zod schema (`action: create|list|read|write|start|kill`); delegates to `terminalManager`; `list`/`read` skip confirm, `start` goes through `isCommandSafe()` + confirm, `write`/`kill`/`create` go through confirm |
 | `src/commands/index.ts` | Command registry — maps slash command name → module, exposes `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
 | `src/commands/types.ts` | Shared types: `SlashCommand`, `CommandContext` (includes `sessionId`, `sessionName`, `callLLM`), `CommandAction` |
 
@@ -86,7 +90,7 @@ Each tool is a self-contained module that exports:
 - `definition: ToolDefinition` — name, description, JSON Schema parameters (sent to LLM), and a `schema: z.ZodTypeAny` used by the registry for input validation
 - `execute(input, confirm)` — runs the action, calls `confirm()` before destructive ops
 
-Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`, `github`.
+Registered tools: `read_file`, `write_file`, `append_file`, `modify_file`, `list_directory`, `run_command`, `search_files`, `web_search`, `github`, `terminal`.
 
 Note: `list_models` is implemented in `src/tools/listModelfromOpenAI.ts` but is **not** registered in the tool registry — it is only used as a startup helper via `fetchAvailableModelOptions()`.
 
@@ -163,6 +167,7 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - `--session <name>` flag loads or creates a named session at startup; sessions persist independently under `sessions/<name>/chat_history.json`. The active session is tracked in `sessions.json`.
 - **Workspace file watcher:** `startWatcher(cwd)` is called after setup (unless `--no-watch`). chokidar watches the CWD at depth 4, recording external file changes in a 15-min rolling window. Before each agent turn, `buildSystemPrompt` is refreshed with `getRecentlyModified()` to inject a `Workspace File Activity` block. `read_file` prepends a staleness note when a file changed since the agent last saw it. `stopWatcher()` is called on all exit paths. Pass `--no-watch` to disable for large repos, NFS mounts, or Docker.
 - **Privacy / `--no-history` (ephemeral session):** pass `--no-history` to run without persisting anything to disk. `index.ts` calls `setEphemeral(true)` (from `src/privacy.ts`) at startup; `saveHistory()`, `saveGraph()`, and `saveIndex()` then early-return, so chat history, the token graph, and the session index are never written — covering every write path (single-turn, `--paste`, SIGINT, auto-compact, `/session` switches). Reads still work: prior context is loaded once at startup, and in ephemeral mode `index.ts` skips the disk-mutating setup steps (`migrateLegacy`, `ensureSession`, `setActive`) and prints a `🔒 Privacy` banner. Combined with `--session <name>`, it warns and loads that session read-only.
+- **Persistent terminals / `--no-terminals`:** by default `run_command` routes through a `TerminalManager` singleton (`src/terminal.ts`) backed by node-pty, so shell state (cwd, env, venv) persists across calls on the implicit `main` terminal. Pass `--no-terminals` to call `disableTerminals()` (from `src/tools/runCommand.ts`) and revert to the legacy one-shot `execa` path — useful when node-pty prebuilds are unavailable. On every exit path `terminalManager.killAll()` is called alongside `stopWatcher()` to tear down all PTY processes.
 - **Mid-session `/privacy` command:** `/privacy` opens an arrow-key picker (via `@clack/prompts` `select`, mirroring `/model` and `/role`) that shows the current mode (`initialValue`) and toggles ephemeral mode without a restart. It calls `setEphemeral()` on the `src/privacy.ts` singleton directly — no `CommandContext` field or `index.ts` handler branch. The pure `privacyTransition(from, to)` helper (exported from `src/commands/privacy.ts`, unit-tested in `test/privacy.test.ts`) computes the warning lines. Because protection is only partial mid-session, transitions warn loudly: enabling does **not** erase turns already written this session; disabling writes the **full in-memory history — including turns recorded while privacy was ON — on the next save**. `/status` shows the current privacy state.
 
 ### Generated files (gitignored)

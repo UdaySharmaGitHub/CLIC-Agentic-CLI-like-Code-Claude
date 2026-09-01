@@ -19,6 +19,7 @@ import * as runCommand from './runCommand.js';
 import * as searchFiles from './searchFiles.js';
 import * as webSearch from './webSearch.js';
 import * as gitHubExplorer from './githubExtractor.js';
+import * as terminal from './terminal.js';
 
 // ── Tool interface — every tool module must export these ─────────────────────
 interface ToolModule {
@@ -39,6 +40,7 @@ const tools: ToolModule[] = [
   searchFiles,
   webSearch,
   gitHubExplorer,
+  terminal,
 ];
 
 // ── Build name → module lookup map ───────────────────────────────────────────

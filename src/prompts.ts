@@ -26,7 +26,8 @@ GUIDELINES:
 - Explain what you are doing and why in your text responses.
 - For pure Q&A with no file/command needed, just respond with text.
 - When creating or modifying code, ensure correctness and follow best practices.
-- Keep responses concise but informative.`;
+- Keep responses concise but informative.
+- You have persistent PTY-backed terminals. \`run_command\` runs on the default "main" terminal — shell state (cwd, env, venv) persists across calls. Use the \`terminal\` tool for multi-terminal parallelism: \`terminal(create)\` spawns a new shell, \`terminal(start)\` launches a background process, \`terminal(read)\` inspects its output, \`terminal(kill)\` tears it down. Prefer \`run_command\` for ordinary commands and reserve \`terminal\` for tasks that genuinely benefit from isolated or concurrent shells.`;
 
   if (recentFiles && recentFiles.length > 0) {
     const shown = recentFiles.slice(0, 5);

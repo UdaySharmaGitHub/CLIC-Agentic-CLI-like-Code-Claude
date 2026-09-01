@@ -58,10 +58,11 @@ function getToolDetail(name: string, args: Record<string, unknown>): string {
     case 'append_file':    return `${args.filepath ?? ''}`;
     case 'modify_file':    return `${args.filepath ?? ''}`;
     case 'list_directory': return `${args.dirpath ?? ''}`;
-    case 'run_command':    return `$ ${args.command ?? ''}`;
+    case 'run_command':    return `[${args.terminal ?? 'main'}] $ ${args.command ?? ''}`;
     case 'search_files':   return `pattern: ${args.pattern ?? ''}`;
     case 'web_search':     return `${args.query ?? ''}`;
     case 'github':         return `${String(args.username ?? args.action ?? '')}`;
+    case 'terminal':       return `${args.action ?? ''}${args.name ? ` "${args.name}"` : ''}${args.command ? ` — ${String(args.command).slice(0, 40)}` : ''}`;
     default:               return JSON.stringify(args).slice(0, 60);
   }
 }
