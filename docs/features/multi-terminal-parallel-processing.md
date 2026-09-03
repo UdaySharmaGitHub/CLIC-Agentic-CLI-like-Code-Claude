@@ -5,6 +5,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+  - [What is a PTY?](#what-is-a-pty)
 - [Motivation](#motivation)
 - [Design decisions (locked)](#design-decisions-locked)
 - [Architecture](#architecture)
@@ -19,6 +20,9 @@
 - [Tool surface](#tool-surface)
   - [`run_command` (enhanced, persistent)](#run_command-enhanced-persistent)
   - [`terminal` (new, multiplexed)](#terminal-new-multiplexed)
+- [Core code breakdown](#core-code-breakdown)
+  - [`_execRaw`](#_execraw----srcterminalts-inside-terminalmanager)
+  - [`waitFor`](#waitfor----srcterminalts-inside-terminalmanager)
 - [Configuration & flags](#configuration--flags)
 - [Safety model](#safety-model)
 - [Lifecycle & teardown](#lifecycle--teardown)
@@ -30,13 +34,37 @@
 
 ## Overview
 
+### What is a PTY?
+
+**PTY** stands for **Pseudo-Terminal** (or Pseudo-TTY). It is a software construct provided by the OS kernel that emulates a real hardware terminal — the kind of serial text terminal that was physically connected to mainframes in the 1970s. Today a PTY is a two-ended pipe with special properties:
+
+- **Master end** — the program that *controls* the terminal (e.g. your terminal emulator, or in CLIC's case, `node-pty`). It reads output from the shell and writes input to it.
+- **Slave end** — the program that *runs inside* the terminal (e.g. `bash`, `zsh`). It believes it is talking to a real screen and keyboard.
+
+**What makes a PTY different from a plain subprocess pipe:**
+
+| Plain subprocess (`execa`) | PTY (`node-pty`) |
+|---|---|
+| Shell knows it has no terminal — disables colors, prompts, interactive features | Shell thinks it has a real terminal — full color output, prompts, readline editing |
+| `cd`, `export`, `source` die with the process | Shell state persists — every subsequent command runs in the same shell |
+| Interactive programs (password prompts, `npm login`, REPLs) hang forever | Interactive programs work — input can be sent via `write()` |
+| One command, one subprocess, then gone | One shell, many commands, shell stays alive |
+
+**Why PTYs matter for CLIC:**
+
+When `execa` runs `bash -c "cd /tmp"`, it spawns a fresh `bash` process, changes directory, and the process exits — the directory change is gone. With a PTY, CLIC spawns one persistent `bash` process and keeps it alive. Every subsequent command runs *inside that same shell*, so `cd`, `export`, `source .venv/bin/activate`, and even complex shell functions all stick between calls — exactly like typing commands yourself in a terminal.
+
+PTYs also enable true parallelism: because each terminal is an independent OS-level process with its own file descriptors, two terminals can execute commands simultaneously without any coordination — they are as independent as two separate terminal windows on your desktop.
+
+---
+
 Today every shell command in CLIC runs through `run_command`, which calls `execa('bash', ['-c', cmd])` — a **fresh, throwaway subprocess per call**. There is no shared shell state: a `cd` in one call is gone by the next, environment exports evaporate, virtualenv activation doesn't stick, and long-running processes (dev servers, watchers, REPLs) cannot be started and later inspected.
 
-This feature introduces a **Terminal Manager** — a singleton that owns a pool of persistent [`node-pty`](https://github.com/microsoft/node-pty) shell processes. Each "terminal" is a real pseudo-terminal running an interactive shell that **retains its working directory, environment, and process state across commands**. Because each terminal is an independent PTY, multiple terminals can execute **truly in parallel** — the agent can run a test suite in one terminal while a dev server streams logs in another.
+This feature introduces a **Terminal Manager** — a singleton that owns a pool of persistent [`node-pty`](https://github.com/microsoft/node-pty) PTY shell processes. Each "terminal" is a real pseudo-terminal running an interactive shell that **retains its working directory, environment, and process state across commands**. Because each terminal is an independent PTY, multiple terminals can execute **truly in parallel** — the agent can run a test suite in one terminal while a dev server streams logs in another.
 
 The agent reaches this through two tools:
 - **`run_command`** — enhanced to run inside a persistent terminal (default `main`). Backward-compatible signature; now stateful.
-- **`terminal`** — a new multiplexed tool (`action`-based, mirroring the existing `github` tool) that manages the terminal pool: create, list, read buffered output, write stdin, start background processes, and kill.
+- **`terminal`** — a new multiplexed tool (`action`-based, mirroring the existing `github` tool) that manages the terminal pool: create, list, read buffered output, write stdin, start background processes, wait for completion, and kill.
 
 ## Motivation
 
@@ -98,20 +126,40 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    A[LLM calls run_command\n command, terminal?] --> B[executeTool → Zod gate]
-    B --> C[isCommandSafe]
-    C -- blocked --> Z[return error]
+    LLM[LLM tool_call] --> GATE{which tool?}
+
+    GATE -- run_command --> A[executeTool → Zod gate]
+    A --> C[isCommandSafe]
+    C -- blocked --> Z[return error ❌]
     C -- safe --> D[confirm prompt]
-    D -- no --> Y[return rejected]
-    D -- yes --> E[TerminalManager.exec\n terminal='main']
+    D -- no --> Y[return rejected ❌]
+    D -- yes --> E[TerminalManager.exec\nterminal='main']
     E --> F{terminal exists?}
-    F -- no --> G[spawn PTY\n shell + cwd + env]
-    F -- yes --> H[enqueue on per-terminal mutex]
+    F -- no --> G[spawn PTY\nshell + cwd + env\n800ms flush]
+    F -- yes --> H[_enqueue\nper-terminal mutex]
     G --> H
-    H --> I[write: command + sentinel printf]
-    I --> J[read PTY stream into ring buffer\n until sentinel regex matches]
-    J --> K[parse exit code, strip ANSI,\n slice sentinel out]
-    K --> L[return ToolResult\n output + exit code]
+    H --> I[_execRaw\nwrite: cmd + sentinel printf]
+    I --> J{onData: sentinel\nregex match?}
+    J -- matched --> K[extract exit code\nstrip ANSI + prompts]
+    J -- timeout --> TOut[timedOut: true\nprocess still running]
+    K --> L[return ToolResult ✅\noutput + exitCode]
+    TOut --> L2[return ToolResult ⚠️\ntimedOut hint]
+
+    GATE -- terminal wait --> W[executeTool → Zod gate]
+    W --> WF[terminalManager.waitFor\nname, pattern?, timeoutMs?]
+    WF --> PM{pattern\nprovided?}
+
+    PM -- yes → pattern mode --> POLL[re.test buffer.tail 500\nevery 200ms]
+    POLL -- match found --> MR[return matched: true ✅]
+    POLL -- deadline hit --> TR[return timedOut: true ⚠️]
+
+    PM -- no → quiet mode --> QUIET[track byte-count change\nevery 200ms]
+    QUIET -- quiet ≥ 1s\nAND status ≠ running --> QR[return matched: false\nsettled ✅]
+    QUIET -- deadline hit --> TR
+
+    MR --> WRes[return ToolResult\noutput = buffer tail]
+    QR --> WRes
+    TR --> WRes
 ```
 
 ### Parallel execution across terminals
@@ -230,7 +278,7 @@ export type TerminalStatus = 'idle' | 'running' | 'background' | 'killed';
 export interface TerminalInfo {
   name: string;
   status: TerminalStatus;
-  cwd: string;              // best-effort tracked cwd (via sentinel readback)
+  cwd: string;              // working directory at spawn time
   lastCommand?: string;
   pid?: number;
   createdAt: string;
@@ -240,7 +288,14 @@ export interface ExecResult {
   output: string;           // ANSI-stripped, sentinel removed
   exitCode: number | null;  // null if timed out / still running
   timedOut: boolean;
-  terminal: string;
+  terminal: string;         // name of the terminal that ran the command
+}
+
+// Return type of waitFor()
+interface WaitResult {
+  matched:  boolean;  // true if pattern regex matched; false for quiet-detection or timeout
+  timedOut: boolean;  // true if deadline elapsed before condition was met
+  output:   string;   // last 500 lines of ring buffer at resolution time
 }
 
 export interface TerminalManagerOptions {
@@ -252,6 +307,11 @@ export interface TerminalManagerOptions {
 ```
 
 ## The sentinel completion protocol
+
+> **What is a sentinel?**
+> A PTY (pseudo-terminal) is a raw byte stream — it has no built-in concept of "command finished". When you type `ls` in a real terminal, you *see* the prompt return, but there is no programmatic signal; it is just more bytes. A **sentinel** is a unique marker string that CLIC itself appends after every command. Because CLIC controls both the write (appending the sentinel) and the read (scanning for it), it can detect *exactly* when a command ends and what its exit code was — without guessing, sleeping, or relying on any OS signal.
+>
+> Think of it like a custom "end of transmission" marker inserted into the byte stream, unique per command so two concurrent commands can never confuse each other's markers.
 
 A PTY is a raw byte stream — there is no "command finished" event. CLIC detects completion by appending a unique **sentinel** after each command and reading until it appears.
 
@@ -297,16 +357,113 @@ printf '\n__CLIC_END__%s__%d__\n' "<token>" "$?"
 |---|---|---|
 | `create` | `name?`, `cwd?` | Spawn a new named terminal (errors if pool is at `TERMINAL_MAX`). |
 | `list` | — | Return all terminals with status, cwd, last command, pid. No confirm. |
-| `read` | `name`, `lines?` | Return the last `lines` (default 50) of the terminal's ring buffer. Ideal for polling a background process. No confirm. |
+| `read` | `name?`, `lines?` | Return the last `lines` (default 50) of the terminal's ring buffer. Ideal for polling a background process. No confirm. |
 | `write` | `name`, `input` | Send raw stdin to a running/background process (e.g. answer a prompt, send `q`). Confirm required. |
 | `start` | `name?`, `command` | Start a **background** (non-blocking) command; return immediately with a note to `read` later. Confirm required + safety gate. |
+| `wait` | `name`, `pattern?`, `timeout?` | Block internally (200ms poll) until a regex `pattern` appears in the terminal's ring buffer, or until output goes quiet for 1s (if `pattern` omitted). Returns a single `ToolResult` — no LLM round-trips during the wait. `timeout` defaults to 30 000ms. No confirm. |
 | `kill` | `name` | Dispose the PTY and remove it from the pool. Confirm required. |
 
-Read-only actions (`list`, `read`) skip `confirm()`; state-changing actions (`create`, `write`, `start`, `kill`) go through `confirm()` and, where a command is involved (`start`), through `isCommandSafe()`.
+Read-only actions (`list`, `read`, `wait`) skip `confirm()`; state-changing actions (`create`, `write`, `start`, `kill`) go through `confirm()` and, where a command is involved (`start`), through `isCommandSafe()`.
+
+**`wait` vs `sleep`:** the only correct way for the LLM to wait for a background process is `terminal(wait)`. Using `run_command("sleep N")` is a blind guess — it wastes wall time when the process finishes early and fails when it takes longer than `N`. `terminal(wait)` resolves the instant the condition is met.
+
+## Core code breakdown
+
+### `_execRaw` — `src/terminal.ts` (inside `TerminalManager`)
+
+This is the sentinel completion engine — the function that makes blocking command execution possible on a raw PTY byte stream.
+
+```ts
+private _execRaw(entry, name, command, timeoutMs): Promise<ExecResult> {
+  return new Promise<ExecResult>((resolve) => {
+    const token   = crypto.randomUUID().replace(/-/g, '');
+    const pattern = new RegExp(`__CLIC_END__${token}__(\\d+)__`);
+
+    entry.status      = 'running';
+    entry.lastCommand = command;
+    let buf = '', done = false;
+
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true; disposable.dispose(); entry.status = 'idle';
+      resolve({ output: stripAnsi(buf).trim(), exitCode: null, timedOut: true, terminal: name });
+    }, timeoutMs);
+
+    const disposable = entry.pty.onData((data: string) => {
+      if (done) return;
+      buf += data;
+      const m = pattern.exec(buf);
+      if (!m) return;
+      done = true; clearTimeout(timer); disposable.dispose(); entry.status = 'idle';
+      resolve({ output: processOutput(buf, command, token), exitCode: parseInt(m[1], 10), timedOut: false, terminal: name });
+    });
+
+    entry.pty.write(`${command}\nprintf '__CLIC_END__${token}__%d__\\n' "$?"\n`);
+  });
+}
+```
+
+| Block | What it does | Why it matters |
+|---|---|---|
+| `token = crypto.randomUUID()` | Unique per-call UUID | Two concurrent execs on different terminals can't cross-match each other's sentinels |
+| `pattern = new RegExp(...)` | Regex that captures exit code from the sentinel line | Exit code is embedded at write time so `$?` is captured before any subsequent command resets it |
+| `entry.status = 'running'` | Marks terminal busy | `waitFor`'s quiet-detection skips the quiet threshold while a command is in flight |
+| `setTimeout(timeoutMs)` | Hard ceiling — resolves with `timedOut: true` | Prevents infinite hang; non-fatal (process keeps running in the PTY) |
+| `entry.pty.onData(...)` | Accumulates chunks into `buf`, checks regex on every chunk | PTY delivers output in arbitrary-sized chunks; the sentinel may arrive split across two chunks |
+| `disposable.dispose()` | Removes the per-call listener immediately on match | Without dispose, stale listeners accumulate and misfire on future commands' output |
+| `pty.write(cmd + printf)` | Writes command then sentinel printf as one atomic write | Shell executes them sequentially — printf always runs after the command, capturing the correct `$?` |
+| `processOutput(buf, command, token)` | Strips ANSI, echoed command line, sentinel, and bare shell prompts | PTY output is noisy; the LLM needs only actual stdout/stderr |
+
+**What makes this the core:** a PTY has no native "command finished" event. `_execRaw` invents one by appending a unique marker after every command and detecting it in the stream. Every other method in `TerminalManager` exists to call `_execRaw` safely — `_enqueue` serialises calls on the same terminal, `_ensureSpawned` guarantees the PTY exists. Without `_execRaw`, CLIC has no way to know when a command finishes.
+
+---
+
+### `waitFor` — `src/terminal.ts` (inside `TerminalManager`)
+
+The precise synchronisation primitive for background processes — replaces blind `sleep N` with a condition-based wait entirely inside Node.js.
+
+```ts
+async waitFor(name, opts = {}): Promise<WaitResult> {
+  const entry     = this.terminals.get(name);
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const quietMs   = opts.quietMs   ?? 1_000;
+  const re        = opts.pattern ? new RegExp(opts.pattern) : null;
+  const deadline  = Date.now() + timeoutMs;
+
+  let lastLen = -1, quietSince = Date.now();
+
+  while (Date.now() < deadline) {
+    const buf = stripAnsi(entry.buffer.tail(500));
+
+    if (re && re.test(buf))
+      return { matched: true, timedOut: false, output: buf };
+
+    if (!re) {
+      if (buf.length !== lastLen) { lastLen = buf.length; quietSince = Date.now(); }
+      else if (Date.now() - quietSince >= quietMs && entry.status !== 'running')
+        return { matched: false, timedOut: false, output: buf };
+    }
+
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return { matched: false, timedOut: true, output: stripAnsi(entry.buffer.tail(500)) };
+}
+```
+
+| Block | What it does | Why it matters |
+|---|---|---|
+| `re = opts.pattern ? new RegExp(...) : null` | Selects pattern mode or quiet mode | Two completely different completion signals — explicit marker vs inferred silence |
+| `deadline = Date.now() + timeoutMs` | Absolute hard stop | Prevents infinite block when a pattern is never printed (wrong regex, silent crash, hung process) |
+| `re.test(buf)` | Checks pattern on each 200ms tick | Resolves the moment the pattern appears — fully dynamic, no fixed sleep |
+| `buf.length !== lastLen` → reset `quietSince` | Resets the quiet clock whenever new output arrives | Correctly distinguishes "brief pause between log lines" from "process genuinely finished" |
+| `entry.status !== 'running'` guard | Skips quiet resolution while a blocking exec is active | Prevents false "quiet" signal during an in-flight `exec()` that hasn't printed yet |
+| `setTimeout(r, 200)` | Yields the Node event loop between polls | Entire wait costs the LLM exactly **one tool round-trip**; all polling is in-process |
+
+**What makes this the core:** `waitFor` transforms `terminal(start)` from fire-and-forget into a precise synchronisation point. Without it, the agent's only option is `sleep N` — a fixed-duration guess that wastes time when the process finishes early and fails when it takes longer than `N`. `waitFor` resolves at exactly the right moment, always.
+
+---
 
 ## Configuration & flags
-
-Added to `src/config.ts`:
 
 | Setting | Default | Purpose |
 |---|---|---|
@@ -380,10 +537,12 @@ Each phase is independently reviewable and leaves CLIC in a working state.
 
 ## Testing strategy
 
-- **Pure helpers (fast, no PTY):** `parseSentinel` extracts exit code + strips marker; `RingBuffer` caps at N lines and drops oldest; `stripAnsi` removes escape codes; `assertValidTerminalName` rejects bad names. Mirrors `test/watcher.test.ts` style.
-- **Integration (spawns a real PTY):** spawn → `exec('echo hi')` returns `hi` + exit 0; `exec('false')` returns exit 1; `cd`/`export` persistence across two `exec` calls; `startBackground` + `read` sees streamed output; `kill`/`killAll` leave no orphaned pids.
-- **Zod gate:** `terminal` schema rejects unknown `action`, missing `name` on `read`/`kill`, etc. (extends `test/zod-validation.test.ts`).
-- **New script:** `pnpm test:terminal` → `tsx test/terminal.test.ts`.
+All tests are in `test/terminal.test.ts` and run with `pnpm test:terminal`. **33 tests, 0 failures** as of implementation.
+
+- **Pure helpers (no PTY, instant):** `stripAnsi` strips CSI, OSC, DCS, bare ESC, and carriage returns; `RingBuffer` caps at N lines, drops oldest, handles pending-chunk joins across pushes; `assertValidTerminalName` rejects empty, >32-char, and special-char names.
+- **`TerminalManager` integration (spawns a real node-pty PTY):** auto-spawn on first `exec`; exit code 0 on success; exit code extraction via `(exit 7)` subshell; persistent cwd across `exec` calls; `list`/`has`/`get` reflect pool state; `startBackground` + `read` returns buffered output; `kill` removes terminal; `kill` on unknown name throws; `killAll` on empty pool is a no-op.
+- **`waitFor` (pattern + quiet + timeout paths):** `startBackground("sleep 0.5; echo MARKER")` → `waitFor(pattern="MARKER", timeoutMs=5000)` → `matched: true, timedOut: false`; `waitFor(pattern="NEVER", timeoutMs=1000)` → `timedOut: true`.
+- **Zod gate:** `terminal` schema rejects unknown `action`, `write` missing `input`, etc. (extends `test/zod-validation.test.ts` coverage).
 
 ## Rollback plan
 

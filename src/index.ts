@@ -20,6 +20,8 @@ import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE, 
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage, setHistoryFile, clearMessages } from './memory.js';
 import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
 import { setEphemeral } from './privacy.js';
+import { terminalManager } from './terminal.js';
+import { disableTerminals } from './tools/runCommand.js';
 import {
   loadIndex,
   migrateLegacy,
@@ -53,7 +55,7 @@ const program = new Command()
   .version('4.3.0')
   .description('CLIC — Command Line Intelligence Companion. An agentic CLI powered by OpenAI-compatible APIs.')
   .option('--kb <path>', 'Knowledge base file path for role/persona')
-  .option('--model <model>', 'LLM model to use', DEFAULT_MODEL)
+  .option('--model <model>', 'LLM model to use')
   .option('--max-steps <n>', 'Max agent steps per turn', String(DEFAULT_MAX_STEPS))
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
   .option('--full-history', 'Load entire chat history without a message limit')
@@ -61,6 +63,7 @@ const program = new Command()
   .option('--no-history', 'Run ephemerally — load prior context read-only, write nothing to disk')
   .option('--no-watch', 'Disable workspace file watcher (for large repos or NFS/Docker)')
   .option('-p, --paste', 'Read prompt from stdin until EOF (Ctrl+D), then run as single-turn')
+  .option('--no-terminals', 'Disable persistent PTY terminals — fall back to legacy one-shot execa for run_command')
   .argument('[prompt]', 'Optional single-turn prompt (skips REPL)')
   .action(main);
 
@@ -68,20 +71,26 @@ program.parse();
 
 async function main(prompt: string | undefined, opts: {
   kb?: string;
-  model: string;
+  model?: string;
   maxSteps: string;
   yolo?: boolean;
   fullHistory?: boolean;
   session?: string;
   history?: boolean;        // commander maps --no-history → history: false
   watch?: boolean;          // commander maps --no-watch → watch: false
+  terminals?: boolean;      // commander maps --no-terminals → terminals: false
   paste?: boolean;          // ← add this
 }) {
-  let model = opts.model;
+  let model: string = opts.model ?? DEFAULT_MODEL;
   const maxSteps = parseInt(opts.maxSteps, 10) || DEFAULT_MAX_STEPS;
   const yolo = opts.yolo ?? false;
   const ephemeral = opts.history === false;
   setEphemeral(ephemeral);
+
+  // Disable persistent terminals if --no-terminals was passed
+  if (opts.terminals === false) {
+    disableTerminals();
+  }
 
   // ── Banner ────────────────────────────────────────────────────────────────
   await printBanner();
@@ -116,8 +125,8 @@ async function main(prompt: string | undefined, opts: {
   await loadPricing(); // Preload pricing data for the models
    
   // ── Model selection — fetch live models from the API ──────────────────────
-  // Skipped only when --model flag is explicitly passed (differs from default).
-  if (opts.model === DEFAULT_MODEL) {
+  // Skipped when --model flag is explicitly passed.
+  if (!opts.model) {
     const spinner = ora({ text: chalk.dim('  Fetching available models...'), color: 'cyan' }).start();
     try {
       const modelOptions = await fetchAvailableModelOptions();
@@ -205,6 +214,10 @@ async function main(prompt: string | undefined, opts: {
     console.log(chalk.dim('  ⚡ File watcher: Disabled (--no-watch)'));
   }
 
+  if (opts.terminals === false) {
+    console.log(chalk.dim('  ⚡ Terminals: Disabled (--no-terminals) — using legacy one-shot execa'));
+  }
+
   // ── Build system prompt + client ──────────────────────────────────────────
   let systemPrompt = buildSystemPrompt(knowledgeBase);
   let client = createClient(model);
@@ -288,6 +301,7 @@ async function main(prompt: string | undefined, opts: {
     await saveHistory();
     await saveGraph(TOKEN_GRAPH_FILE);
     stopWatcher();
+    await terminalManager.killAll();
     singleRl.close();
     return;
   }
@@ -305,6 +319,7 @@ async function main(prompt: string | undefined, opts: {
     console.log(chalk.dim('\n  Saving and exiting...'));
     clearInterval(keepAlive);
     stopWatcher();
+    await terminalManager.killAll();
     await saveHistory();
     await saveGraph(TOKEN_GRAPH_FILE);
     process.exit(0);
@@ -400,6 +415,7 @@ async function main(prompt: string | undefined, opts: {
       if (process.stdin.destroyed) {
         clearInterval(keepAlive);
         stopWatcher();
+        await terminalManager.killAll();
         break;
       }
       continue;
@@ -415,6 +431,7 @@ async function main(prompt: string | undefined, opts: {
       if (result.type === 'exit') {
         clearInterval(keepAlive);
         stopWatcher();
+        await terminalManager.killAll();
         await saveHistory();
         await saveGraph(TOKEN_GRAPH_FILE);
         break;
