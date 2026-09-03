@@ -111,6 +111,16 @@ export async function runTerminalTests(): Promise<{ passed: number; failed: numb
     const buf = terminalManager.read(name, 50);
     ok('read() returns buffered output', typeof buf === 'string');
 
+    // waitFor — pattern path
+    await terminalManager.startBackground(name, 'sleep 0.5; echo WAIT_DONE_MARKER');
+    const w1 = await terminalManager.waitFor(name, { pattern: 'WAIT_DONE_MARKER', timeoutMs: 5_000 });
+    eq('waitFor resolves on pattern match', w1.matched, true);
+    eq('waitFor not timed out on match', w1.timedOut, false);
+
+    // waitFor — timeout path (pattern never appears)
+    const w2 = await terminalManager.waitFor(name, { pattern: 'NEVER_APPEARS_XYZ', timeoutMs: 1_000 });
+    eq('waitFor times out when pattern absent', w2.timedOut, true);
+
     // kill
     await terminalManager.kill(name);
     eq('has() returns false after kill', terminalManager.has(name), false);
@@ -130,9 +140,9 @@ export async function runTerminalTests(): Promise<{ passed: number; failed: numb
   } finally {
     // Clean up any leftover terminals
     if (terminalManager.has(name)) {
-      await terminalManager.kill(name).catch(() => {});
+      await terminalManager.kill(name).catch(() => { });
     }
-    await terminalManager.killAll().catch(() => {});
+    await terminalManager.killAll().catch(() => { });
   }
 
   console.log(`\n  ── ${passed} passed, ${failed} failed`);

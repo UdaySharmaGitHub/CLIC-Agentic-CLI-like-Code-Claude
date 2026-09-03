@@ -47,7 +47,7 @@ export class RingBuffer {
   private lines: string[] = [];
   private pending = '';
 
-  constructor(private readonly maxLines: number) {}
+  constructor(private readonly maxLines: number) { }
 
   push(chunk: string): void {
     const parts = (this.pending + chunk).split('\n');
@@ -101,24 +101,24 @@ export interface ExecResult {
 // ── Defaults (from src/config.ts) ─────────────────────────────────────────────
 
 const DEFAULTS = {
-  shell:        TERMINAL_SHELL,
+  shell: TERMINAL_SHELL,
   maxTerminals: TERMINAL_MAX,
   cmdTimeoutMs: TERMINAL_CMD_TIMEOUT_MS,
-  bufferLines:  TERMINAL_BUFFER_LINES,
+  bufferLines: TERMINAL_BUFFER_LINES,
 };
 
 // ── Internal entry (not exported) ─────────────────────────────────────────────
 
 interface TerminalEntry {
-  pty:         IPty;
-  status:      TerminalStatus;
-  buffer:      RingBuffer;
-  cwd:         string;
-  createdAt:   string;
+  pty: IPty;
+  status: TerminalStatus;
+  buffer: RingBuffer;
+  cwd: string;
+  createdAt: string;
   lastCommand?: string;
   // Per-terminal mutex: always resolves, never rejects.
   // Callers chain onto this to serialise exec() calls on the same terminal.
-  queue:       Promise<unknown>;
+  queue: Promise<unknown>;
 }
 
 // ── Output post-processing ────────────────────────────────────────────────────
@@ -151,19 +151,19 @@ function processOutput(raw: string, command: string, token: string): string {
 // ── TerminalManager ───────────────────────────────────────────────────────────
 
 class TerminalManager {
-  private readonly terminals    = new Map<string, TerminalEntry>();
-  private readonly spawnLocks   = new Map<string, Promise<void>>();  // dedup concurrent spawns
+  private readonly terminals = new Map<string, TerminalEntry>();
+  private readonly spawnLocks = new Map<string, Promise<void>>();  // dedup concurrent spawns
 
-  private readonly shell:        string;
+  private readonly shell: string;
   private readonly maxTerminals: number;
   private readonly cmdTimeoutMs: number;
-  private readonly bufferLines:  number;
+  private readonly bufferLines: number;
 
   constructor(opts: Partial<typeof DEFAULTS> = {}) {
-    this.shell        = opts.shell        ?? DEFAULTS.shell;
+    this.shell = opts.shell ?? DEFAULTS.shell;
     this.maxTerminals = opts.maxTerminals ?? DEFAULTS.maxTerminals;
     this.cmdTimeoutMs = opts.cmdTimeoutMs ?? DEFAULTS.cmdTimeoutMs;
-    this.bufferLines  = opts.bufferLines  ?? DEFAULTS.bufferLines;
+    this.bufferLines = opts.bufferLines ?? DEFAULTS.bufferLines;
   }
 
   // ── Public: lifecycle ───────────────────────────────────────────────────────
@@ -186,12 +186,12 @@ class TerminalManager {
     });
 
     const entry: TerminalEntry = {
-      pty:       proc,
-      status:    'idle',
-      buffer:    new RingBuffer(this.bufferLines),
-      cwd:       workDir,
+      pty: proc,
+      status: 'idle',
+      buffer: new RingBuffer(this.bufferLines),
+      cwd: workDir,
       createdAt: new Date().toISOString(),
-      queue:     Promise.resolve(),
+      queue: Promise.resolve(),
     };
 
     // Persistent handler: all output flows into the ring buffer.
@@ -202,7 +202,7 @@ class TerminalManager {
     // Let the shell fully initialise before we start issuing commands.
     await new Promise<void>(r => setTimeout(r, 800));
     // Flush welcome noise (motd, .zshrc output, etc.)
-    await this._execRaw(entry, name, 'true', 5_000).catch(() => {});
+    await this._execRaw(entry, name, 'true', 5_000).catch(() => { });
   }
 
   /** Destroy a terminal and remove it from the pool. */
@@ -217,7 +217,7 @@ class TerminalManager {
   /** Destroy all terminals. Called on every CLIC exit path. */
   async killAll(): Promise<void> {
     await Promise.all(
-      [...this.terminals.keys()].map(n => this.kill(n).catch(() => {})),
+      [...this.terminals.keys()].map(n => this.kill(n).catch(() => { })),
     );
   }
 
@@ -263,15 +263,61 @@ class TerminalManager {
     return stripAnsi(entry.buffer.tail(lines));
   }
 
+  /**
+   * Block until a terminal finishes or a pattern appears in its output.
+   *  - If `pattern` is given: resolve when the buffer matches it.
+   *  - Otherwise: resolve when output goes "quiet" (no new bytes for quietMs).
+   * Always resolves; never hangs past timeoutMs.
+   */
+  async waitFor(
+    name: string,
+    opts: { pattern?: string; timeoutMs?: number; quietMs?: number } = {},
+  ): Promise<{ matched: boolean; timedOut: boolean; output: string }> {
+    const entry = this.terminals.get(name);
+    if (!entry) throw new Error(`Terminal "${name}" not found.`);
+
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    const quietMs = opts.quietMs ?? 1_000;
+    const re = opts.pattern ? new RegExp(opts.pattern) : null;
+    const deadline = Date.now() + timeoutMs;
+
+    let lastLen = -1;
+    let quietSince = Date.now();
+
+    while (Date.now() < deadline) {
+      const buf = stripAnsi(entry.buffer.tail(500));
+
+      // Condition 1: pattern matched
+      if (re && re.test(buf)) {
+        return { matched: true, timedOut: false, output: buf };
+      }
+
+      // Condition 2: quiet detection (only when no pattern given)
+      if (!re) {
+        if (buf.length !== lastLen) {
+          lastLen = buf.length;
+          quietSince = Date.now();          // output still flowing → reset
+        } else if (Date.now() - quietSince >= quietMs && entry.status !== 'running') {
+          return { matched: false, timedOut: false, output: buf };
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 200));  // poll every 200ms
+    }
+
+    return { matched: false, timedOut: true, output: stripAnsi(entry.buffer.tail(500)) };
+  }
+
+
   /** Metadata for all live terminals. */
   list(): TerminalInfo[] {
     return [...this.terminals.entries()].map(([n, e]) => ({
-      name:        n,
-      status:      e.status,
-      cwd:         e.cwd,
-      pid:         e.pty.pid,
+      name: n,
+      status: e.status,
+      cwd: e.cwd,
+      pid: e.pty.pid,
       lastCommand: e.lastCommand,
-      createdAt:   e.createdAt,
+      createdAt: e.createdAt,
     }));
   }
 
@@ -314,19 +360,19 @@ class TerminalManager {
 
   /** Core exec: write command + sentinel, stream output until sentinel appears. */
   private _execRaw(
-    entry:    TerminalEntry,
-    name:     string,
-    command:  string,
+    entry: TerminalEntry,
+    name: string,
+    command: string,
     timeoutMs: number,
   ): Promise<ExecResult> {
     return new Promise<ExecResult>((resolve) => {
-      const token   = crypto.randomUUID().replace(/-/g, '');
+      const token = crypto.randomUUID().replace(/-/g, '');
       const pattern = new RegExp(`__CLIC_END__${token}__(\\d+)__`);
 
-      entry.status      = name === 'true' ? 'idle' : 'running';
+      entry.status = name === 'true' ? 'idle' : 'running';
       entry.lastCommand = command;
 
-      let buf  = '';
+      let buf = '';
       let done = false;
 
       const timer = setTimeout(() => {
@@ -335,7 +381,7 @@ class TerminalManager {
         disposable.dispose();
         entry.status = 'idle';
         resolve({
-          output:   stripAnsi(buf).trim(),
+          output: stripAnsi(buf).trim(),
           exitCode: null,
           timedOut: true,
           terminal: name,
@@ -354,7 +400,7 @@ class TerminalManager {
         entry.status = 'idle';
 
         resolve({
-          output:   processOutput(buf, command, token),
+          output: processOutput(buf, command, token),
           exitCode: parseInt(m[1], 10),
           timedOut: false,
           terminal: name,

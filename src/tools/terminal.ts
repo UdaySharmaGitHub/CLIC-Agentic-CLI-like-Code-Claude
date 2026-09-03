@@ -27,6 +27,13 @@ const nameReq    = z.string().min(1).max(32);
 const cmdReq     = z.string().min(1);
 
 export const schema = z.discriminatedUnion('action', [
+  z.object({
+  action:  z.literal('wait'),
+  name:    nameReq,
+  pattern: z.string().optional(),
+  timeout: z.number().int().positive().max(300_000).optional(),
+}),
+
   z.object({ action: z.literal('create'), name: nameOpt,  cwd: z.string().optional() }),
   z.object({ action: z.literal('list')  }),
   z.object({ action: z.literal('read'),  name: nameOpt,   lines: z.number().int().positive().max(500).optional() }),
@@ -47,11 +54,14 @@ export const definition: ToolDefinition = {
     '"read" — return last N lines of buffered output from a terminal (no confirmation needed, default name="main", lines=50); ' +
     '"write" — send raw stdin to a running/background process (e.g. to answer an interactive prompt); ' +
     '"start" — start a long-running background command (dev server, watcher) — returns immediately, use read to poll output; ' +
-    '"kill" — destroy a terminal and free its slot.',
+    '"kill" — destroy a terminal and free its slot; ' +
+    '"wait" — block until output goes quiet or a regex pattern appears (name required, pattern + timeout optional).',
   parameters: {
     type: 'object',
     properties: {
-      action:  { type: 'string',  description: 'One of: create | list | read | write | start | kill' },
+      action:  { type: 'string',  description: 'One of: create | list | read | write | start | kill | wait' },
+      pattern: { type: 'string',  description: 'Regex to wait for (wait only, optional — omit to wait until output goes quiet)' },
+      timeout: { type: 'number',  description: 'Max ms to wait (wait only, optional, default 30000)' },
       name:    { type: 'string',  description: 'Terminal name (1–32 chars). Required for write/kill. Defaults to "main" for read/start. Optional for create.' },
       command: { type: 'string',  description: 'Shell command to run (required for start)' },
       input:   { type: 'string',  description: 'Raw stdin to send to the terminal (required for write)' },
@@ -187,6 +197,7 @@ async function handleWrite(
   }
 }
 
+// HandlerStart — start a background process in a terminal
 async function handleStart(
   input: { action: 'start'; name?: string; command: string },
   confirm: ConfirmFn,
@@ -224,7 +235,40 @@ async function handleStart(
   }
 }
 
-async function handleKill(
+// HandlerWait — wait for a pattern to appear in the terminal output
+async function handleWait(
+  input:{action:'wait';name:string;pattern?:string;timeout?:number},
+):Promise<ToolResult> {
+  printToolHeader('terminal:wait', `${input.name}${input.pattern ? ` — /${input.pattern}/` : ' (until quiet)'}`);
+  console.log();
+  
+  try{
+    const res = await terminalManager.waitFor(input.name,{
+      pattern:input.pattern,
+      timeoutMs:input.timeout,
+    });
+
+    if(res.timedOut){
+       printToolError(`Timed out waiting for "${input.name}".`);
+      printSeparator();
+      return { output: `Timed out. Last output:\n${res.output}`, isError: true };
+    }
+
+    const how = res.matched? 'pattern matched':'output settled';
+    printToolSuccess(`Terminal "${input.name}" ready (${how}).`);
+    printSeparator();
+    return {output:`Done (${how}). Output: \n${res.output}`,isError:false};
+  }catch(err:unknown){
+    const msg = err instanceof Error ? err.message : String(err);
+    printToolError(msg);
+    printSeparator();
+    return { output:`Error - ${msg}`,isError: true};
+  }
+}
+
+
+// handleKill — destroy a terminal and remove it from the pool
+async function handleKill( 
   input: { action: 'kill'; name: string },
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
@@ -263,5 +307,6 @@ export async function execute(
     case 'write':  return handleWrite(input, confirm);
     case 'start':  return handleStart(input, confirm);
     case 'kill':   return handleKill(input, confirm);
+    case 'wait':   return handleWait(input);
   }
 }
