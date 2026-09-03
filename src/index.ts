@@ -55,7 +55,7 @@ const program = new Command()
   .version('4.3.0')
   .description('CLIC — Command Line Intelligence Companion. An agentic CLI powered by OpenAI-compatible APIs.')
   .option('--kb <path>', 'Knowledge base file path for role/persona')
-  .option('--model <model>', 'LLM model to use', DEFAULT_MODEL)
+  .option('--model <model>', 'LLM model to use')
   .option('--max-steps <n>', 'Max agent steps per turn', String(DEFAULT_MAX_STEPS))
   .option('--yolo', 'Auto-approve all actions (use with caution!)')
   .option('--full-history', 'Load entire chat history without a message limit')
@@ -71,7 +71,7 @@ program.parse();
 
 async function main(prompt: string | undefined, opts: {
   kb?: string;
-  model: string;
+  model?: string;
   maxSteps: string;
   yolo?: boolean;
   fullHistory?: boolean;
@@ -81,7 +81,7 @@ async function main(prompt: string | undefined, opts: {
   terminals?: boolean;      // commander maps --no-terminals → terminals: false
   paste?: boolean;          // ← add this
 }) {
-  let model = opts.model;
+  let model: string = opts.model ?? DEFAULT_MODEL;
   const maxSteps = parseInt(opts.maxSteps, 10) || DEFAULT_MAX_STEPS;
   const yolo = opts.yolo ?? false;
   const ephemeral = opts.history === false;
@@ -125,8 +125,8 @@ async function main(prompt: string | undefined, opts: {
   await loadPricing(); // Preload pricing data for the models
    
   // ── Model selection — fetch live models from the API ──────────────────────
-  // Skipped only when --model flag is explicitly passed (differs from default).
-  if (opts.model === DEFAULT_MODEL) {
+  // Skipped when --model flag is explicitly passed.
+  if (!opts.model) {
     const spinner = ora({ text: chalk.dim('  Fetching available models...'), color: 'cyan' }).start();
     try {
       const modelOptions = await fetchAvailableModelOptions();
