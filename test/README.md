@@ -43,15 +43,15 @@ test/
 ```
 
 ```mermaid
-flowchart TD,
+flowchart TD
   A["pnpm test"] --> B["test/index.ts"]
-  B --> C["Validation gate\n18 tests"]
-  B --> D["Tool schemas\n37 tests"]
-  B --> E["Edge cases\n27 tests"]
-  B --> F["Watcher helpers\n10 tests"]
-  B --> G["Privacy mode\n15 tests"]
-  B --> H["Conversation export\n23 tests"]
-  B --> I["Terminal module\n33 tests"]
+  B --> C["Validation gate<br/>18 tests"]
+  B --> D["Tool schemas<br/>37 tests"]
+  B --> E["Edge cases<br/>27 tests"]
+  B --> F["Watcher helpers<br/>10 tests"]
+  B --> G["Privacy mode<br/>15 tests"]
+  B --> H["Conversation export<br/>23 tests"]
+  B --> I["Terminal module<br/>33 tests"]
   C --> J["Aggregate results"]
   D --> J
   E --> J
