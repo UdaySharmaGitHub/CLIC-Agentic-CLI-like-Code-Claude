@@ -3,6 +3,7 @@
  * Tests each tool's specific schema validation rules (schema-only, no execution)
  */
 
+import { pathToFileURL } from 'node:url';
 import { TestCase, runTestSuite } from './utils/test-helpers.js';
 
 // ─ read_file schema tests
@@ -104,5 +105,9 @@ export async function runToolSchemaTests(): Promise<{ passed: number; failed: nu
   }
 
   return { passed: totalPassed, failed: totalFailed };
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runToolSchemaTests().then(r => process.exit(r.failed > 0 ? 1 : 0));
 }
 
