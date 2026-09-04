@@ -4,6 +4,7 @@
  * These test fundamental validation behavior across all tools
  */
 
+import { pathToFileURL } from 'node:url';
 import { TestCase, runTestSuite } from './utils/test-helpers.js';
 
 /**
@@ -144,5 +145,9 @@ export async function runValidationGateTests(): Promise<{
   failed: number;
 }> {
   return runTestSuite('Validation Gate Tests', testCases);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runValidationGateTests().then(r => process.exit(r.failed > 0 ? 1 : 0));
 }
 

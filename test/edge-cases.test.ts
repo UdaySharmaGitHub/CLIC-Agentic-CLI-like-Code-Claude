@@ -4,6 +4,7 @@
  * Schema-only validation (no tool execution)
  */
 
+import { pathToFileURL } from 'node:url';
 import { TestCase, runTestSuite } from './utils/test-helpers.js';
 
 /**
@@ -202,5 +203,9 @@ const testCases: TestCase[] = [
  */
 export async function runEdgeCaseTests(): Promise<{ passed: number; failed: number }> {
   return runTestSuite('Edge Case Tests', testCases);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runEdgeCaseTests().then(r => process.exit(r.failed > 0 ? 1 : 0));
 }
 
