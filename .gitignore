@@ -8,3 +8,25 @@ token_graph.json
 sessions/
 sessions.json
 exports/
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Temporary and editor files
+*.swp
+*.swo
+.vscode/*
+!.vscode/settings.json
+.idea/
+
+# Windows metadata
+Thumbs.db
