@@ -1,9 +1,9 @@
 # CLIC — Command Line Intelligence Companion
 
-> **v4.3.0** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, user-controlled parallel tool execution, abort support, API retry with exponential backoff, cost estimation, context-window guard with auto-compact, and a modular tool system.
+> **v4.3.0** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, user-controlled parallel tool execution, abort support, API retry with exponential backoff, cost estimation, context-window guard with auto-compact, Zod runtime input validation, named sessions, privacy/ephemeral mode, conversation export, workspace file watching, and a persistent Parallel Execution PTY terminal pool for stateful shell execution.
 
 
-CLIC is a terminal-based Agentic CLI that can read/write files, run shell commands, search the web, and chain multiple steps automatically to complete complex tasks — all with human approval before every action.
+CLIC is a terminal-based Agentic CLI that can read/write files, run persistent shell sessions, search the web, manage named conversation sessions, and chain multiple steps automatically to complete complex tasks — all with human approval before every action. It ships a hardened execution harness: a node-pty PTY pool where each terminal retains its shell state (cwd, env, virtual environments) across calls, commands on the same terminal serialise via a per-entry promise queue, and different terminals run in true parallel — so the agent can drive dev servers, test runners, and file watchers concurrently without losing context.
 
 ---
 
@@ -66,6 +66,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | 🔒 Privacy / Ephemeral Mode | `--no-history` starts an ephemeral session — nothing written to disk (chat history, token graph, session index all suppressed). Toggle mid-session with `/privacy` |
 | 📤 Conversation Export | `/export [markdown\|json\|html]` serialises the active conversation to a self-contained file in `exports/` |
 | 👁️ Workspace File Watching | chokidar watches CWD for external edits; injects a `Workspace File Activity` block into the system prompt each turn and prepends an inline staleness note on `read_file` when a file changed since the agent last saw it; disable with `--no-watch` |
+| 🖥️ Persistent PTY Terminals | node-pty terminal pool (`src/terminal.ts`) backs `run_command` and the `terminal` tool; shell state (cwd, env, venv) persists across calls; commands on different terminals run in parallel, same-terminal calls serialise; disable with `--no-terminals` to fall back to legacy one-shot execa |
 
 ---
 
@@ -81,6 +82,7 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run shell comman
 | **`fast-glob`** | Glob-based file search |
 | **`diff`** | Unified diff generation for `write_file` / `modify_file` preview |
 | **`chokidar`** | Cross-platform filesystem watcher for workspace file activity tracking (pinned to v3) |
+| **`node-pty`** | Native PTY bindings for persistent shell sessions — powers the terminal pool in `src/terminal.ts` |
 | **`chalk`** | Colored terminal output |
 | **`ora`** | Spinner while waiting for LLM responses |
 | **`dotenv`** | Load `.env` config (API keys) |
@@ -103,6 +105,7 @@ clic/
 │   ├── memory.ts             ← Chat history management (load/save/push/pop/clear/trim + setHistoryFile)
 │   ├── session.ts            ← Named-session lifecycle (create/switch/rename/delete + sessions.json index)
 │   ├── watcher.ts            ← Singleton workspace file watcher (chokidar; staleness notes + ambient context)
+│   ├── terminal.ts           ← TerminalManager singleton — node-pty PTY pool (persistent shell state, per-terminal serialisation, parallel across terminals)
 │   ├── privacy.ts            ← Ephemeral-session flag (setEphemeral / isEphemeral; dependency-free singleton)
 │   ├── safety.ts             ← Blocked commands + protected paths
 │   ├── config.ts             ← Env loading, constants, context limits, session paths, KB loader
@@ -138,6 +141,7 @@ clic/
 │       ├── searchFiles.ts    ← search_files tool
 │       ├── webSearch.ts      ← web_search tool (LLM-powered; uses active model via CLIC_MODEL)
 │       ├── githubExtractor.ts← github tool (profile, streak, repos)
+│       ├── terminal.ts       ← terminal tool (PTY pool actions: create/list/read/write/start/kill/wait)
 │       └── listModelfromOpenAI.ts ← fetchAvailableModelOptions() startup helper (not in tool registry)
 ├── roles based Workflow/     ← Built-in role/persona files (auto-discovered)
 ├── .env                      ← API keys (not committed)
@@ -335,6 +339,7 @@ Registered tools:
 | `search_files` | `searchFiles.ts` | Glob-based file search |
 | `web_search` | `webSearch.ts` | Web search — routes query to the active LLM via a fresh OpenAI client call using `CLIC_MODEL`; no external search API required |
 | `github` | `githubExtractor.ts` | GitHub profile, streak, and repos |
+| `terminal` | `terminal.ts` | Persistent PTY terminal pool — create/list/read/write/start/kill/wait actions; shell state survives across calls |
 
 > `list_models` (`listModelfromOpenAI.ts`) is a startup-only helper — it powers the interactive model picker but is **not** registered in the LLM tool registry.
 
@@ -351,8 +356,9 @@ Registered tools:
 | **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `setHistoryFile()`, `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory(limit?)`, `saveHistory()`, `trimToLastUserMessage()` |
 | **`session.ts`** | Named-session lifecycle — `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `setActive()`, `hasSession()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`. Persists `sessions.json` + per-session `sessions/<name>/` directories |
 | **`watcher.ts`** | Singleton chokidar watcher — `startWatcher(cwd)`, `stopWatcher()`, `markRead(filepath)`, `getStalenessNote(filepath)`, `getRecentlyModified(windowMs?)`. Also exports pure helpers for testing: `formatAgo()`, `computeStalenessNote()`, `selectRecent()` |
+| **`terminal.ts`** | `TerminalManager` singleton backed by node-pty — pool of up to 8 persistent PTY shells. Commands on the same terminal serialise via a per-terminal promise queue; different terminals run in parallel. Sentinel detection captures exit codes. Exports pure helpers: `stripAnsi()`, `RingBuffer`, `assertValidTerminalName()`, and singleton `terminalManager` |
 | **`privacy.ts`** | Dependency-free singleton for ephemeral-session mode — `setEphemeral(value)`, `isEphemeral()`. Imported by `memory.ts`, `knowledgeGraph.ts`, and `session.ts` to skip all disk writes when enabled |
-| **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
+| **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `TERMINAL_SHELL`, `TERMINAL_MAX`, `TERMINAL_CMD_TIMEOUT_MS`, `TERMINAL_BUFFER_LINES`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
 | **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `printContextBar()`, `actionLabel()`, `sessionNameBadge()` |
 | **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
@@ -453,6 +459,7 @@ Runs the prompt, outputs the result, and exits.
 | `--session <name>` | `default` | Load or create a named session; names may contain letters, digits, dashes, underscores |
 | `--no-history` | history on | Start an ephemeral session — nothing persisted to disk (chat history, token graph, and session index writes are all suppressed) |
 | `--no-watch` | watch on | Disable workspace file watcher (recommended for large repos, NFS mounts, or Docker) |
+| `--no-terminals` | terminals on | Disable persistent PTY terminal pool — fall back to legacy one-shot `execa` for `run_command` (use when `node-pty` prebuilds are unavailable) |
 | `-p, --paste` | `false` | Read prompt from stdin until EOF (Ctrl+D) and run as single-turn; works with pipes: `cat file.txt \| pnpm dev --paste` |
 
 #### Available Models
@@ -864,7 +871,7 @@ CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini, then m
 | Hardcoded Gemini endpoint | SAP AI Core Orchestration | Any OpenAI-compatible endpoint |
 | `eval` for shell commands | `execa` with timeout | `execa` with timeout |
 | No token tracking | No token tracking | Knowledge Graph — actual token counts per session |
-| Monolithic single file | 18-file modular architecture | 43-file modular architecture + KG + pricing + context guard + diff preview + named sessions + workspace watcher |
+| Monolithic single file | 18-file modular architecture | 45-file modular architecture + KG + pricing + context guard + diff preview + named sessions + workspace watcher + PTY terminals |
 | Google Search grounding | Brave / Tavily web search | LLM-powered web_search + GitHub + pricing + retry + auto-compact |
 
 ---
