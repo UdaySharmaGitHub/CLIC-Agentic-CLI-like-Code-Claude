@@ -3,6 +3,14 @@
   "version": "4.3.0",
   "description": "CLIC — Command Line Intelligence Companion. An agentic CLI Like CLAUDE CODE",
   "type": "module",
+  "homepage": "https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude.git"
+  },
+  "bugs": {
+    "url": "https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/issues"
+  },
   "bin": {
     "clic": "./dist/index.js"
   },
@@ -10,6 +18,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsup src/index.ts --format esm --clean",
     "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
     "test": "tsx test/index.ts",
     "test:zod": "tsx test/index.ts",
     "test:validation-gate": "tsx test/zod-validation.test.ts",
@@ -21,7 +30,8 @@
     "test:terminal": "tsx test/terminal.test.ts"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20",
+    "pnpm": ">=10"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["node-pty"]

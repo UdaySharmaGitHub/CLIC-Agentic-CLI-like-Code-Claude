@@ -55,7 +55,7 @@ export async function loadKnowledgeBase(kbFile: string): Promise<{ content: stri
 
 // Context Limit Constants
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  // ── Anthropic via SAP AI Core ──────────────────────────────────────────────
+  // ── Anthropic  ──────────────────────────────────────────────
   'anthropic--claude-4-sonnet':   200_000,
   'anthropic--claude-4.5-haiku':  200_000,
   'anthropic--claude-4.5-opus':   200_000,

@@ -50,7 +50,7 @@ Large multi-turn conversations can silently exceed a model's context window, cau
 ### Data flow
 
 1. User submits a prompt in the REPL. `index.ts` calls `runAgentTurn()`.
-2. `runAgentTurn()` returns `{ promptTokens }`. The value is the sum of `usage.promptTokens` across all steps; it is **0** when the provider (e.g. SAP AI Core / Anthropic proxy) does not include usage data.
+2. `runAgentTurn()` returns `{ promptTokens }`. The value is the sum of `usage.promptTokens` across all steps; it is **0** when the provider (e.g. OpenAI / OpenRouter) does not include usage data.
 3. `index.ts` calls `getContextLimit()`, which reads `process.env.CLIC_MODEL` and looks it up in `MODEL_CONTEXT_LIMITS`, falling back to `DEFAULT_CONTEXT_LIMIT` (128,000).
 4. `index.ts` computes `rawTokens`:
    - If `turnResult.promptTokens > 0` → use it directly.
@@ -321,7 +321,7 @@ When the user types `/compact`, `executeCommand()` calls `command.execute(ctx)` 
 
 | Scenario | How it is handled |
 |---|---|
-| Provider returns no token usage (e.g. SAP AI Core / Anthropic proxy) | `turnResult.promptTokens` is 0; `index.ts` falls back to `getMessages().reduce(chars/4)` — the bar still renders |
+| Provider returns no token usage (e.g. OpenAI / OpenRouter) | `turnResult.promptTokens` is 0; `index.ts` falls back to `getMessages().reduce(chars/4)` — the bar still renders |
 | Empty conversation (`msgs.length === 0`) | `runCompact` returns immediately without calling the LLM or clearing messages |
 | LLM call fails during compaction | `try/catch` in `runCompact` stops the spinner and prints `❌ Auto-compact failed: …`; no `clearMessages()` has run yet so history is intact |
 | `tokensAfter > tokensBefore` (LLM produces a very verbose summary) | `Math.max(0, tokensBefore - tokensAfter)` clamps `freed` to 0; no negative display |
@@ -330,7 +330,7 @@ When the user types `/compact`, `executeCommand()` calls `command.execute(ctx)` 
 | User aborts mid-turn (Ctrl+C) | `AbortController` signal cancels `streamMessage`; the guard block is inside `try`/`catch` in `index.ts` so the REPL continues cleanly |
 | Auto-compact fires but `saveHistory` is missing on `/retry` path | The retry path (lines 331–341) does not call `saveHistory()` inside the guard — `saveHistory()` is called at line 352 after all command handling, so history is still persisted |
 
-**Important constraint:** `agent.ts` and `openai.ts` are intentionally left unmodified by this feature. Earlier attempts to add char-estimation inside those files caused `❌ API Error: 400 status code (no body)` from the SAP AI Core proxy (sensitive to `content: null` on assistant messages). All estimation logic lives exclusively in `index.ts` and `compact.ts`.
+**Important constraint:** `agent.ts` and `openai.ts` are intentionally left unmodified by this feature. Earlier attempts to add char-estimation inside those files caused `❌ API Error: 400 status code (no body)` from the OpenAI / OpenRouter (sensitive to `content: null` on assistant messages). All estimation logic lives exclusively in `index.ts` and `compact.ts`.
 
 ---
 

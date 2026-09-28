@@ -1,4 +1,31 @@
-# CLIC — Command Line Intelligence Companion
+<h1 align="center">CLIC — Command Line Intelligence Companion</h1>
+
+---
+
+<div align="center">
+  <a href="https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/actions/workflows/ci.yml"><img src="https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
+  <a href="https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/stargazers"><img src="https://img.shields.io/github/stars/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude?style=social" alt="GitHub Stars"></a>
+</div>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#getting-started">Getting Started</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#contributing">Contributing</a> ·
+  <a href="https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/issues">Pick an Issue</a> ·
+  <a href="https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/issues/new?template=bug_report.md">Report a Bug</a> ·
+  <a href="https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/issues/new?template=feature_request.md">Request a Feature</a>
+</p>
+
+<div align="center">
+  <img src="https://img.shields.io/badge/tools-10_registered-2563eb?style=flat-square" alt="10 registered tools">
+  <img src="https://img.shields.io/badge/slash_commands-16-0f766e?style=flat-square" alt="16 slash commands">
+  <img src="https://img.shields.io/badge/provider-OpenAI_compatible-7c3aed?style=flat-square" alt="OpenAI compatible">
+  <img src="https://img.shields.io/badge/node-%3E%3D20-16a34a?style=flat-square" alt="Node.js >= 20">
+  <img src="https://img.shields.io/badge/contributions-welcome-ea580c?style=flat-square" alt="Contributions welcome">
+</div>
 
 > **v4.3.0** — An agentic CLI powered by any OpenAI-compatible API with streaming, function calling, user-controlled parallel tool execution, abort support, API retry with exponential backoff, cost estimation, context-window guard with auto-compact, Zod runtime input validation, named sessions, privacy/ephemeral mode, conversation export, workspace file watching, and a persistent Parallel Execution PTY terminal pool for stateful shell execution.
 
@@ -31,6 +58,10 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run persistent s
 - [Persistent Agent Memory](#persistent-agent-memory)
 - [Safety](#safety)
 - [Environment Variables](#environment-variables)
+- [Contributing](#contributing)
+- [Security](#security)
+- [Roadmap](#roadmap)
+- [FAQ](#faq)
 - [Claude Code Integration](#claude-code-integration)
   - [Claude Commands](#claude-commands)
   - [Claude Skills](#claude-skills)
@@ -373,14 +404,14 @@ Registered tools:
 
 ### Prerequisites
 
-- **Node.js** >= 18
-- **pnpm** (recommended) or npm
+- **Node.js** >= 20
+- **pnpm** 10 or newer (recommended)
 
 ### Install
 
 ```bash
-git clone <repo-url> clic
-cd clic
+git clone https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude.git
+cd CLIC-Agentic-CLI-like-Code-Claude
 pnpm install
 ```
 
@@ -776,6 +807,51 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 
 ---
 
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, testing requirements, and pull request guidance. Please also review the [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+
+---
+
+## Security
+
+Please do not disclose API keys or other secrets in issues, pull requests, logs, or screenshots. See [SECURITY.md](SECURITY.md) for responsible vulnerability reporting instructions.
+
+---
+
+## Roadmap
+
+Future work will be prioritized through GitHub issues and discussions. Areas of interest include:
+
+- Improving provider and model configuration workflows.
+- Expanding test coverage for interactive terminal and tool execution paths.
+- Improving documentation, examples, and contributor tooling.
+- Evaluating additional integrations while preserving the provider-agnostic core.
+
+See the [open issues](https://github.com/UdaySharmaGitHub/CLIC-Agentic-CLI-like-Code-Claude/issues) for current priorities and proposed work.
+
+---
+
+## FAQ
+
+### Do I need an OpenAI API key?
+
+No. CLIC works with any OpenAI-compatible API endpoint. Set `API_KEY` and optionally `BASE_URL` in `.env` for your provider.
+
+### Why does CLIC ask for approval before actions?
+
+Human approval is enabled by default for safety. Use `--yolo` only in a trusted environment where automatic approval is appropriate.
+
+### Why does `node-pty` fail to install?
+
+Install the platform build tools required by Node.js and run `pnpm install` again. You can also use `--no-terminals` to disable the persistent PTY terminal pool and use the fallback command runner.
+
+### Can I run CLIC without saving conversation history?
+
+Yes. Start it with `--no-history` to use an ephemeral session that suppresses history, token graph, and session index writes.
+
+---
+
 ## Claude Code Integration
 
 CLIC ships a set of **Claude Code slash commands** and **skills** under `.claude/` that let Claude Code work on this repo more effectively — running the app, reviewing code, documenting features, and keeping configuration in sync.
@@ -860,25 +936,9 @@ node .claude/skills/run-clic/driver.mjs quit
 
 ---
 
-## Evolution
-
-CLIC started as a pure Bash script (`setup.sh`) powered by Google Gemini, then migrated to SAP AI Core Orchestration Service, and is now a provider-agnostic OpenAI-compatible client:
-
-| Bash v4.1 (Gemini) | TypeScript v4.2 (SAP AI Core) | TypeScript v4.3 (OpenAI-compatible) |
-|---|---|---|
-| Manual JSON parsing + `done` flag | Native SAP SDK function calling | Native `openai` SDK streaming + tool calls |
-| `jq` + `curl` for API calls | `@sap-ai-sdk/orchestration` | `openai` npm package |
-| Hardcoded Gemini endpoint | SAP AI Core Orchestration | Any OpenAI-compatible endpoint |
-| `eval` for shell commands | `execa` with timeout | `execa` with timeout |
-| No token tracking | No token tracking | Knowledge Graph — actual token counts per session |
-| Monolithic single file | 18-file modular architecture | 45-file modular architecture + KG + pricing + context guard + diff preview + named sessions + workspace watcher + PTY terminals |
-| Google Search grounding | Brave / Tavily web search | LLM-powered web_search + GitHub + pricing + retry + auto-compact |
-
----
-
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE) for the full text.
 
 ---
 
