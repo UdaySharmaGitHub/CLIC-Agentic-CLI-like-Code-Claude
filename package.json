@@ -37,7 +37,7 @@
     "onlyBuiltDependencies": ["node-pty"]
   },
   "dependencies": {
-    "@clack/prompts": "^0.9.1",
+    "@clack/prompts": "^1.8.1",
     "chalk": "^6.0.1",
     "chokidar": "^5.0.0",
     "commander": "^13.1.0",
