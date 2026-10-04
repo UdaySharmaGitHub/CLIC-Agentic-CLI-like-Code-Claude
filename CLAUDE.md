@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+@AGENTS.md
+
+> **Cross-reference:** `AGENTS.md` is the single source of truth for shared project context (commands, architecture, key files, workflows). The sections below are Claude Code-specific additions only. All other agentic IDEs read `AGENTS.md` directly.
+
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands
@@ -182,3 +188,36 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 | `dist/` | Compiled production output |
 | `*.bak` | Backup files created by the `modify_file` tool |
 | `exports/` | Conversation exports written by `/export` — `clic-export-<date>.[md|json|html]` |
+
+---
+
+## Claude Code-Specific
+
+### Custom Slash Commands
+
+Project-specific slash commands in `.claude/commands/` — available as `/command-name` in the REPL:
+
+| Command | File | What it does |
+|---|---|---|
+| `/run` | `.claude/commands/run.md` | Run CLIC via `pnpm dev` and observe output |
+| `/verify` | `.claude/commands/verify.md` | Verify a change works end-to-end |
+| `/code-review` | `.claude/commands/code-review.md` | Review current diff for bugs and simplifications |
+| `/security-review` | `.claude/commands/security-review.md` | Audit pending changes for security issues |
+| `/clic-features-doc` | `.claude/commands/clic-features-doc.md` | Document a feature from source |
+| `/feature-review-for-specific` | `.claude/commands/feature-review-for-specific.md` | Review a specific feature |
+| `/update-context-for-future` | `.claude/commands/update-context-for-future.md` | Sync README.md and AGENTS.md with codebase |
+| `/update-config` | `.claude/commands/update-config.md` | Update `.claude/settings.json` |
+| `/fewer-permission-prompts` | `.claude/commands/fewer-permission-prompts.md` | Add allowlist rules to reduce permission friction |
+| `/claude-api` | `.claude/commands/claude-api.md` | Look up Claude / Anthropic API reference |
+
+### Skills
+
+| Skill | Location | What it does |
+|---|---|---|
+| `run-clic` | `.claude/skills/run-clic/` | Drive CLIC via tmux PTY — single-turn, REPL, slash commands, headless |
+
+Full driver documentation: `.agents/skills/run-clic.md`
+
+### Settings & Permissions
+
+`.claude/settings.json` contains pre-approved patterns to reduce permission prompts during the dev loop. Use `/update-config` or `/fewer-permission-prompts` to add new patterns. Local overrides (gitignored): `.claude/settings.local.json`

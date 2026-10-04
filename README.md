@@ -856,6 +856,23 @@ Yes. Start it with `--no-history` to use an ephemeral session that suppresses hi
 
 CLIC ships a set of **Claude Code slash commands** and **skills** under `.claude/` that let Claude Code work on this repo more effectively — running the app, reviewing code, documenting features, and keeping configuration in sync.
 
+### Multi-Agent IDE Compatibility
+
+CLIC is compatible with all major agentic AI IDEs and coding agents — not just Claude Code.
+
+| File / Directory | Read by |
+|---|---|
+| `AGENTS.md` | All agentic IDEs: Cursor, Windsurf, Cline, Antigravity, Copilot Workspace, Continue.dev, Aider, Amazon Q, Devin, Gemini Code Assist, OpenAI Codex |
+| `.agents/commands/` | Any agent with a file-reading tool — detailed workflow instructions per task |
+| `.agents/skills/run-clic.md` | Any agent — end-to-end driver workflow for headless CLIC execution |
+| `CLAUDE.md` | Claude Code only — imports `AGENTS.md` via `@AGENTS.md` + Claude Code-specific additions |
+| `.claude/commands/` | Claude Code only — slash command execution layer |
+| `.claude/skills/` | Claude Code only — skills runner |
+
+`AGENTS.md` is the single source of truth for shared project context. `CLAUDE.md` imports it and extends it with Claude Code-specific tooling.
+
+---
+
 ### Claude Commands
 
 Slash commands are stored in [.claude/commands/](.claude/commands/) and are invoked inside a Claude Code session with `/command-name`. Each command is a markdown prompt file that is injected as instructions when you run it.
