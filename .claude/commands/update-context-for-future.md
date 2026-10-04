@@ -43,7 +43,7 @@ Compare what you read against the current README.md and CLAUDE.md. Look for:
 - Changes to `AgentOptions`, `CommandContext`, or `CommandAction` types
 - Changes to the Knowledge Graph schema or edges
 
-### 3. Update CLAUDE.md
+### 3. Update AGENTS.md
 
 Rewrite the following sections to match reality (preserve all other content):
 
@@ -54,7 +54,16 @@ Rewrite the following sections to match reality (preserve all other content):
 - **Knowledge Graph** section — node types, edge types, exported helpers
 - Any interface or type signatures that are now stale
 
-### 4. Update README.md
+### 4. Update CLAUDE.md
+
+Update both the shared content (imported via `@AGENTS.md` at the top) **and** the Claude Code-specific sections below the separator line:
+
+- If shared content changed in step 3, confirm `@AGENTS.md` at the top of `CLAUDE.md` will pull it in — no duplication needed in the body
+- **Custom Slash Commands** table — add/remove rows for new/removed `.claude/commands/` files
+- **Skills** table — add/remove rows for new/removed `.claude/skills/` entries
+- **Settings & Permissions** — update if `.claude/settings.json` changed
+
+### 5. Update README.md
 
 Rewrite the following sections (preserve structure, tone, and Mermaid diagrams unless a diagram is structurally wrong):
 
@@ -72,13 +81,14 @@ Rewrite the following sections (preserve structure, tone, and Mermaid diagrams u
 Do NOT change the Mermaid diagrams unless a node or edge is provably wrong based on the source code.
 Do NOT rewrite prose sections (Getting Started, Safety narrative, Persistent Agent Memory explanation) unless facts in them are incorrect.
 
-### 5. Verify
+### 6. Verify
 
-After editing, re-read both files and confirm:
+After editing, re-read all three files and confirm:
 - No tool or command from the registry is missing from the docs
 - No tool or command appears in the docs that is not in the registry
 - The version in README matches `package.json`
 - All env var names in the table match what `src/config.ts` actually exports
+- `AGENTS.md` and `CLAUDE.md` have no duplicated content (shared content lives in `AGENTS.md` only)
 
 Report a short summary of every change made (added, removed, corrected).
 
