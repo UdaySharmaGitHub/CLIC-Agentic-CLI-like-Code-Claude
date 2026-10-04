@@ -1,3 +1,10 @@
+---
+name: clic-features-doc
+description: >-
+  Document a specific feature of CLIC by exploring source files and writing an accurate feature doc in docs/features/.
+  Trigger when the user runs "/clic-features-doc" or asks to document a feature.
+---
+
 # Document a Feature
 
 Document the feature **<feature-name>** by exploring the codebase and writing a complete, accurate feature doc.

@@ -1,3 +1,10 @@
+---
+name: code-review
+description: >-
+  Review current git diffs for correctness, bugs, edge cases, type safety, and simplification opportunities.
+  Trigger when the user runs "/code-review" or asks to review code changes.
+---
+
 # Code Review
 
 Review the current diff for correctness bugs and simplification opportunities in CLIC.

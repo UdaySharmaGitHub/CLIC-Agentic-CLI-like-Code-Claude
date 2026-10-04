@@ -1,3 +1,10 @@
+---
+name: run
+description: >-
+  Run the CLIC app in development (source via tsx) or compiled production mode.
+  Trigger when the user runs "/run" or asks to run or start CLIC.
+---
+
 # Run CLIC
 
 Run the CLIC app using `pnpm dev` (or `pnpm build + pnpm start` for production).
@@ -33,5 +40,5 @@ After launching, watch terminal output for:
 ## Notes
 
 - CLIC requires a real TTY — it will crash with `ERR_TTY_INIT_FAILED` in headless/backgrounded shells
-- For headless/automated runs, use the driver: see `.agents/skills/run-clic.md`
+- For headless/automated runs, use the driver: see `.agents/skills/run-clic/SKILL.md`
 - `pnpm dev` with `--model gpt-4o` may still show the picker if `gpt-4o` is the `DEFAULT_MODEL` — pass any other model name to reliably skip it

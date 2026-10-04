@@ -1,3 +1,10 @@
+---
+name: verify
+description: >-
+  Verify a recent change to CLIC end-to-end by running in single-turn mode and checking token usage.
+  Trigger when the user runs "/verify" or asks to verify/test changes.
+---
+
 # Verify a Change
 
 Verify that a recent code change to CLIC actually works end-to-end by running the app and observing its behavior.
@@ -28,5 +35,5 @@ Verify that a recent code change to CLIC actually works end-to-end by running th
 ## Notes
 
 - `--yolo` skips all confirmation prompts — safe for verification runs on known-good prompts
-- For headless environments, use the driver: see `.agents/skills/run-clic.md`
+- For headless environments, use the driver: see `.agents/skills/run-clic/SKILL.md`
 - If conversation state is affecting results, clear history first: `echo "[]" > chat_history.json`

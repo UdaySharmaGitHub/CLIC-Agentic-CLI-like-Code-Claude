@@ -1,3 +1,10 @@
+---
+name: security-review
+description: >-
+  Audit changes for security vulnerabilities, prompt/command injections, path traversal, or secret leakage.
+  Trigger when the user runs "/security-review" or asks for a security review/audit.
+---
+
 # Security Review
 
 Run a security review of the pending changes in CLIC.

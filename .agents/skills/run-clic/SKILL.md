@@ -1,3 +1,10 @@
+---
+name: run-clic
+description: >-
+  Run CLIC end-to-end using the headless tmux driver script to test REPL and single-turn sessions.
+  Trigger when the user runs "/run-clic" or asks to run CLIC headlessly with the tmux driver.
+---
+
 # Run CLIC End-to-End (Driver)
 
 CLIC is a Node.js/TypeScript agentic CLI (REPL + single-turn mode). It requires a real TTY — `@clack/prompts` crashes without one. Drive it via `.claude/skills/run-clic/driver.mjs`, which wraps it in a tmux session so you can send input and read output programmatically.

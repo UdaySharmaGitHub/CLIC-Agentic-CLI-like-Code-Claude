@@ -1,3 +1,10 @@
+---
+name: update-context
+description: >-
+  Scan the CLIC codebase for drift and update README.md, CLAUDE.md, and AGENTS.md to match the implementation.
+  Trigger when the user runs "/update-context" or asks to update documentation context.
+---
+
 # Update Documentation Context
 
 Scan the CLIC codebase for any changes since the last documentation update, then rewrite `README.md` and `CLAUDE.md` / `AGENTS.md` to accurately reflect the current state of the project.

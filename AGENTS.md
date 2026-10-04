@@ -10,18 +10,48 @@
 
 CLIC is a Node.js CLI tool (ESM, TypeScript) built around a **ReAct agentic loop** powered by any **OpenAI-compatible API** via the `openai` npm package. It runs as an interactive REPL or in single-turn non-interactive mode.
 
-**Workflows & detailed step-by-step instructions** are in `.agents/commands/`. Read the relevant file before executing any workflow:
+### Agent Workflows & Skills (`.agents/skills/`)
 
-| Task | File |
-|---|---|
-| Run the app | `.agents/commands/run.md` |
-| Verify a change end-to-end | `.agents/commands/verify.md` |
-| Code review | `.agents/commands/code-review.md` |
-| Security review | `.agents/commands/security-review.md` |
-| Document a feature | `.agents/commands/clic-features-doc.md` |
-| Review a specific feature | `.agents/commands/feature-review-for-specific.md` |
-| Update documentation | `.agents/commands/update-context.md` |
-| Run CLIC end-to-end (driver) | `.agents/skills/run-clic.md` |
+Workflows are maintained under `.agents/skills/` as modular, self-contained skills (compatible with Google Antigravity, Cursor, Windsurf, Claude Code, and all major agentic IDEs):
+
+```text
+.agents/
+└── skills/                       # Native Agentic Skills with YAML frontmatter
+    ├── run/SKILL.md
+    ├── verify/SKILL.md
+    ├── code-review/SKILL.md
+    ├── security-review/SKILL.md
+    ├── clic-features-doc/SKILL.md
+    ├── feature-review/SKILL.md
+    ├── update-context/SKILL.md
+    └── run-clic/SKILL.md
+```
+
+#### Workflows & Skills Directory
+
+| Task | Skill / Workflow File | Slash Command |
+|---|---|---|
+| Run the app | `.agents/skills/run/SKILL.md` | `/run` |
+| Verify a change end-to-end | `.agents/skills/verify/SKILL.md` | `/verify` |
+| Code review | `.agents/skills/code-review/SKILL.md` | `/code-review` |
+| Security review | `.agents/skills/security-review/SKILL.md` | `/security-review` |
+| Document a feature | `.agents/skills/clic-features-doc/SKILL.md` | `/clic-features-doc <feature>` |
+| Review a specific feature | `.agents/skills/feature-review/SKILL.md` | `/feature-review <feature>` |
+| Update documentation | `.agents/skills/update-context/SKILL.md` | `/update-context` |
+| Run CLIC end-to-end (driver) | `.agents/skills/run-clic/SKILL.md` | `/run-clic` |
+
+### Slash Command Routing (for Antigravity & Agentic IDEs)
+
+When the user enters any of the following slash commands in chat, immediately read and execute the corresponding skill:
+
+- `/run` → Execute `.agents/skills/run/SKILL.md`
+- `/verify` → Execute `.agents/skills/verify/SKILL.md`
+- `/code-review` → Execute `.agents/skills/code-review/SKILL.md`
+- `/security-review` → Execute `.agents/skills/security-review/SKILL.md`
+- `/clic-features-doc <feature>` → Execute `.agents/skills/clic-features-doc/SKILL.md`
+- `/feature-review <feature>` → Execute `.agents/skills/feature-review/SKILL.md`
+- `/update-context` → Execute `.agents/skills/update-context/SKILL.md`
+- `/run-clic` → Execute `.agents/skills/run-clic/SKILL.md`
 
 ---
 
@@ -125,6 +155,7 @@ User input (REPL or single-turn)
 | `src/tools/terminal.ts` | Multiplexed `terminal` tool — discriminated-union Zod schema (`action: create\|list\|read\|write\|start\|kill\|wait`); delegates to `terminalManager` |
 | `src/commands/index.ts` | Command registry — maps slash command name → module |
 | `src/commands/types.ts` | `SlashCommand`, `CommandContext`, `CommandAction` types |
+| `.agents/skills/` | Native Agentic Skills catalog with YAML frontmatter (progressive disclosure) |
 
 ---
 

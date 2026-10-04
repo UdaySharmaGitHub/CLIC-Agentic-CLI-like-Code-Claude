@@ -1,3 +1,10 @@
+---
+name: feature-review
+description: >-
+  Review the implementation of a specific feature in CLIC across tools, commands, and the ReAct loop.
+  Trigger when the user runs "/feature-review" or asks to review a specific feature.
+---
+
 # Review a Specific Feature
 
 Review the feature: **<feature-name>**
