@@ -52,5 +52,41 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test
-        run: pnpm test
+  test-suites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validate
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - test
+          - test:validation-gate
+          - test:schemas
+          - test:edge-cases
+          - test:watcher
+          - test:privacy
+          - test:export
+          - test:terminal
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ${{ matrix.suite }}
+        run: pnpm ${{ matrix.suite }}
