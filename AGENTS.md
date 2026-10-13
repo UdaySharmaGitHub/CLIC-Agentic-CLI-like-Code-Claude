@@ -24,7 +24,8 @@ Workflows are maintained under `.agents/skills/` as modular, self-contained skil
     ├── clic-features-doc/SKILL.md
     ├── feature-review/SKILL.md
     ├── update-context/SKILL.md
-    └── run-clic/SKILL.md
+    ├── run-clic/SKILL.md
+    └── adr/SKILL.md
 ```
 
 #### Workflows & Skills Directory
@@ -39,6 +40,7 @@ Workflows are maintained under `.agents/skills/` as modular, self-contained skil
 | Review a specific feature | `.agents/skills/feature-review/SKILL.md` | `/feature-review <feature>` |
 | Update documentation | `.agents/skills/update-context/SKILL.md` | `/update-context` |
 | Run CLIC end-to-end (driver) | `.agents/skills/run-clic/SKILL.md` | `/run-clic` |
+| Document an architectural decision | `.agents/skills/adr/SKILL.md` | `/adr <title>` |
 
 ### Slash Command Routing (for Antigravity & Agentic IDEs)
 
@@ -52,6 +54,7 @@ When the user enters any of the following slash commands in chat, immediately re
 - `/feature-review <feature>` → Execute `.agents/skills/feature-review/SKILL.md`
 - `/update-context` → Execute `.agents/skills/update-context/SKILL.md`
 - `/run-clic` → Execute `.agents/skills/run-clic/SKILL.md`
+- `/adr <title>` → Execute `.agents/skills/adr/SKILL.md`
 
 ---
 
