@@ -1,0 +1,36 @@
+infrastructure:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**'
+
+tools:
+  - changed-files:
+      - any-glob-to-any-file: 'src/tools/**'
+
+commands:
+  - changed-files:
+      - any-glob-to-any-file: 'src/commands/**'
+
+core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/agent.ts'
+          - 'src/openai.ts'
+          - 'src/memory.ts'
+          - 'src/index.ts'
+
+Testing:
+  - changed-files:
+      - any-glob-to-any-file: 'test/**'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - '*.md'
+          - '.github/*.md'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'package.json'
+          - 'pnpm-lock.yaml'
