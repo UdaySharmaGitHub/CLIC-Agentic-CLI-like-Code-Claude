@@ -209,12 +209,14 @@ Project-specific slash commands in `.claude/commands/` — available as `/comman
 | `/update-config` | `.claude/commands/update-config.md` | Update `.claude/settings.json` |
 | `/fewer-permission-prompts` | `.claude/commands/fewer-permission-prompts.md` | Add allowlist rules to reduce permission friction |
 | `/claude-api` | `.claude/commands/claude-api.md` | Look up Claude / Anthropic API reference |
+| `/adr` | `.claude/commands/adr.md` | Create a new Architecture Decision Record |
 
 ### Skills
 
 | Skill | Location | What it does |
 |---|---|---|
 | `run-clic` | `.claude/skills/run-clic/` | Drive CLIC via tmux PTY — single-turn, REPL, slash commands, headless |
+| `adr` | `.agents/skills/adr/` | Author a new ADR in the correct format and update the docs/adr/README.md index |
 
 Full driver documentation: `.agents/skills/run-clic.md`
 
