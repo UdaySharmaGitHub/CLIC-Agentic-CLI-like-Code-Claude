@@ -1,0 +1,32 @@
+# CODEOWNERS
+# Each line is a file pattern followed by one or more owners.
+# Owners are automatically requested for review when a PR touches matching files.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything not matched below
+*                               @UdaySharmaGitHub
+
+# CI / infrastructure changes
+.github/                        @UdaySharmaGitHub
+
+# Core agent loop — highest impact, always needs careful review
+src/agent.ts                    @UdaySharmaGitHub
+src/openai.ts                   @UdaySharmaGitHub
+src/memory.ts                   @UdaySharmaGitHub
+src/index.ts                    @UdaySharmaGitHub
+
+# Safety — must be reviewed carefully
+src/safety.ts                   @UdaySharmaGitHub
+
+# Tool system
+src/tools/                      @UdaySharmaGitHub
+
+# Command system
+src/commands/                   @UdaySharmaGitHub
+
+# Tests
+test/                           @UdaySharmaGitHub
+
+# Documentation
+docs/                           @UdaySharmaGitHub
+*.md                            @UdaySharmaGitHub
