@@ -24,8 +24,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0
       dotenv:
-        specifier: ^18.0.5
-        version: 18.0.5
+        specifier: ^18.0.7
+        version: 18.0.7
       execa:
         specifier: ^10.1.0
         version: 10.1.0
@@ -752,8 +752,8 @@ packages:
     resolution: {integrity: sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==}
     engines: {node: '>=0.3.1'}
 
-  dotenv@18.0.5:
-    resolution: {integrity: sha512-aBrGvt6KhjxbEnatqMWOMidftwsrCiCvqh1yNIGB9QyF0J+VcWkKDMsvYOEm7ZS82oiV+BT1sTOtIlAmUlTpwQ==}
+  dotenv@18.0.7:
+    resolution: {integrity: sha512-QEvMEF8ca3GNZJJnAbOgxpj5ULhBvnMcURp+XKrtvqFNPgjBvYoswQ0Jl2cO7JzCjxZjJhr9ZuIEhlrRxMft/Q==}
     engines: {node: '>=12'}
     hasBin: true
 
@@ -1515,7 +1515,7 @@ snapshots:
 
   diff@9.0.0: {}
 
-  dotenv@18.0.5: {}
+  dotenv@18.0.7: {}
 
   emoji-regex@10.6.0: {}
 
