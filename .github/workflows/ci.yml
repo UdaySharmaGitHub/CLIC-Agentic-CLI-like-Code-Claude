@@ -69,6 +69,7 @@ jobs:
           - test:privacy
           - test:export
           - test:terminal
+          - test:web-search
 
     steps:
       - name: Check out repository

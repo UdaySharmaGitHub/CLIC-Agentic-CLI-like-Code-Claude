@@ -27,7 +27,8 @@
     "test:watcher": "tsx test/watcher.test.ts",
     "test:privacy": "tsx test/privacy.test.ts",
     "test:export": "tsx test/export.test.ts",
-    "test:terminal": "tsx test/terminal.test.ts"
+    "test:terminal": "tsx test/terminal.test.ts",
+    "test:web-search": "tsx test/web-search.test.ts"
   },
   "engines": {
     "node": ">=20",
