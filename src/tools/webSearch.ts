@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  Tool: web_search — answer questions using OpenAI-compatible API
+//  Tool: web_search — real-time internet search via gpt-5
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
@@ -9,16 +9,19 @@ import {
   printRejected, printDimOutput, printSeparator,
 } from '../ui.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
-
-// Adding the zod schema for input validation
+import { withRetry } from '../retry.js';
 import { z } from 'zod';
+
 const schema = z.object({
   query: z.string().min(1, { message: 'Query is required' }),
 });
 
 export const definition: ToolDefinition = {
   name: 'web_search',
-  description: 'Answer questions about the real world — current events, people, companies, science, technology, sports, finance, geography, history, or any general knowledge topic. Use this whenever the user asks about anything beyond coding or local files.',
+  description:
+    'Search the internet for real-time information — current events, breaking news, ' +
+    'stock prices, weather, recent research, or any topic requiring up-to-date data. ' +
+    'Use this when the answer may have changed since the model\'s training cutoff.',
   parameters: {
     type: 'object',
     properties: {
@@ -29,13 +32,23 @@ export const definition: ToolDefinition = {
   schema,
 };
 
+// ── Execute ───────────────────────────────────────────────────────────────────
+
 export async function execute(
   input: z.infer<typeof schema>,
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
-  printToolHeader('web_search', `Query: ${input.query}`);
+  const currentYear = new Date().getFullYear();
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-  if (!await confirm(`Approve web search for '${input.query}'?`)) {
+  // Replace any stale year in the query with the current year before anything else runs.
+  const freshQuery = input.query.replace(/\b(20\d{2})\b/g, (match) =>
+    Number(match) < currentYear ? String(currentYear) : match,
+  );
+
+  printToolHeader('web_search', `Query: ${freshQuery}`);
+
+  if (!await confirm(`Approve web search for '${freshQuery}'?`)) {
     printRejected();
     printSeparator();
     return { output: 'User rejected the web search.', isError: true };
@@ -44,60 +57,76 @@ export async function execute(
   console.log(`  ${chalk.green('  🌐 Searching the web...')}`);
   console.log();
 
-  const model = process.env.CLIC_MODEL || 'gpt-4o';
+  // Always uses SEARCH_MODEL (defaults to gpt-5) with the same BASE_URL
+  // and API_KEY as the main client — independent of the active chat model.
+  const searchModel = process.env.SEARCH_MODEL ?? 'gpt-5';
+
   const client = new OpenAI({
     apiKey: process.env.API_KEY ?? '',
-    baseURL: process.env.BASE_URL?.trim() ?? 'https://api.openai.com/v1',
+    baseURL: process.env.BASE_URL ?? 'https://api.openai.com/v1',
   });
 
   try {
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: `You are a knowledgeable research assistant with broad, up-to-date knowledge about the world.
-When asked a question:
-- Answer directly and thoroughly using everything you know.
-- Cover facts, context, background, and relevant details.
-- If the topic involves people, companies, events, science, technology, news, sports, finance, geography, or culture — answer confidently.
-- Structure your response clearly: use bullet points, sections, or numbered lists where helpful.
-- If you know relevant figures, dates, names, or statistics, include them.
-- If the information may have changed recently (e.g. stock prices, breaking news), say so honestly — but still provide the best answer you can from your knowledge.`,
-        },
-        {
-          role: 'user',
-          content: `Question: ${input.query}\n\nProvide a detailed, well-structured answer.`,
-        },
-      ],
-      max_tokens: 4096,
-      temperature: 0.2,
-    });
+    const result = await withRetry(() =>
+      client.chat.completions.create({
+        model: searchModel,
+        messages: [
+          { role: 'system', content: `Today is ${today}. Always search for and return the most recent information available.` },
+          { role: 'user', content: freshQuery },
+        ],
+        stream: false,
+      }),
+    ) as OpenAI.ChatCompletion & { citations?: string[] };
 
-    const searchText = response.choices[0]?.message?.content?.slice(0, 8000);
+    const text = result.choices[0]?.message?.content ?? '';
+    const citations: string[] = result.citations ?? [];
 
-    if (!searchText) {
+    if (!text) {
       printToolError('Web search returned no results.');
       printSeparator();
       return { output: 'ERROR — web search returned no results.', isError: true };
     }
 
-    const lines = searchText.split('\n');
+    const lines = text.split('\n');
     console.log(`  ${chalk.green('  ── Search Results ──────────────────────────────')}`);
     printDimOutput(lines, 60);
+
+    if (citations.length > 0) {
+      console.log(`  ${chalk.green('  ── Sources ─────────────────────────────────────')}`);
+      for (const url of citations) {
+        console.log(`  ${chalk.dim(`  • ${url}`)}`);
+      }
+    }
+
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────')}`);
     console.log();
     printToolSuccess('Web search completed.');
     printSeparator();
 
+    const citationsBlock = citations.length > 0
+      ? `\n\nSources:\n${citations.map(url => `- ${url}`).join('\n')}`
+      : '';
+
     return {
-      output: `[Web search results for '${input.query}']:\n${searchText}`,
+      output: `[Web search results for '${freshQuery}']:\n${text}${citationsBlock}`,
       isError: false,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Web search failed: ${msg}`);
+    const isAuth =
+      msg.includes('401') ||
+      msg.toLowerCase().includes('unauthorized') ||
+      msg.toLowerCase().includes('api key');
+    const isRateLimit = msg.includes('429') || msg.toLowerCase().includes('rate limit');
+
+    const userMsg = isAuth
+      ? 'Web search failed: invalid API key. Check API_KEY in your .env file.'
+      : isRateLimit
+        ? 'Web search rate-limited. Retry in a moment.'
+        : `Web search failed: ${msg}`;
+
+    printToolError(userMsg);
     printSeparator();
-    return { output: `ERROR — web search failed: ${msg}`, isError: true };
+    return { output: `ERROR — ${userMsg}`, isError: true };
   }
 }

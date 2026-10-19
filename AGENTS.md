@@ -174,7 +174,7 @@ Each tool is a self-contained module exporting:
 
 **`write_file` and `modify_file`** render a full-width unified diff before asking for confirmation. `modify_file` also creates a `.bak` backup before patching.
 
-**`web_search`** routes the query to the active LLM via a fresh OpenAI client call — it does not call an external search API.
+**`web_search` implementation note:** uses `gpt-5` (OpenAI) via the standard Chat Completions API (`client.chat.completions.create()`) routed through the configured `BASE_URL` and `API_KEY`. The search model is always `SEARCH_MODEL` from `.env` (default: `gpt-5`), independent of whichever model the user selected for chat. Stale years injected into the query by the chat LLM are automatically replaced with the current year before the request is sent. Citations are extracted from the `citations` field on the response (Perplexity-specific) and appended as a Sources block. Configurable via `SEARCH_MODEL` env var.
 
 **To add a new tool:** create `src/tools/myTool.ts` with `definition` and `execute`, then add it to the `tools` array in `src/tools/index.ts`.
 

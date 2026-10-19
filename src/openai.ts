@@ -7,6 +7,7 @@ import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/reso
 import type { ChatMessage, ToolCall } from './memory.js';
 import { getToolDefinitions } from './tools/index.js';
 import type { ToolDefinition } from './tools/types.js';
+import { withRetry } from './retry.js';
 
 // ── Convert our ToolDefinition format to ChatCompletionTool ─────────────────
 
@@ -39,27 +40,6 @@ export function createClient(_model: string): OpenAI {
   });
 }
 
-
-// ── API Retry With Exponential Backoff ────────────────────────────────────────
-
-async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 4, signal?: AbortSignal): Promise<T> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      const isRetriable = error instanceof OpenAI.APIError && [429, 500, 502, 503, 504].includes(error.status);
-      const isLastAttempt = attempt === maxAttempts - 1;
-
-      if (!isRetriable || isLastAttempt) throw error;
-
-      if (signal?.aborted) throw error;
-
-      const delay = 1000 * Math.pow(2, attempt) + Math.random() * 500;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-  throw new Error('unreachable');
-}
 
 // ── Response type ────────────────────────────────────────────────────────────
 
