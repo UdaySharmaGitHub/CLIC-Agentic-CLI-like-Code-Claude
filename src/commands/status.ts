@@ -7,7 +7,7 @@
 
 import { messageCount } from "../memory.js";
 import type { SlashCommand } from "./types.js";
-import { printStatus } from "../ui.js";
+import { printStatus } from "../ui/index.js";
 import { getContextLimit } from "../config.js";
 import { isEphemeral } from "../privacy.js";
 import chalk from "chalk";

@@ -7,7 +7,7 @@
 
 import chalk from 'chalk';
 import { getMessages } from '../memory.js';
-import { printSeparator } from '../ui.js';
+import { printSeparator } from '../ui/index.js';
 import type { SlashCommand } from './types.js';
 
 export const command: SlashCommand = {

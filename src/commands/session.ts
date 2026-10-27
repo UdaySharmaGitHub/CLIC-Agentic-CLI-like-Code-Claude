@@ -16,7 +16,7 @@
 import chalk from 'chalk';
 import { text, confirm, select, isCancel } from '@clack/prompts';
 import { getSessionTokenSummary } from '../knowledgeGraph.js';
-import { sessionNameBadge } from '../ui.js';
+import { sessionNameBadge } from '../ui/index.js';
 import {
   listSessions,
   getActive,

@@ -1,59 +1,13 @@
-// ─────────────────────────────────────────────────────────────────────────────
-//  UI — banner, colors, formatters  (Claude-Code-inspired design)
-// ─────────────────────────────────────────────────────────────────────────────
+// Non-TTY fallback — chalk-based implementations used when process.stdout.isTTY is false
+// (--paste mode, piped stdin, CI). Ink cannot render without a real TTY.
 
 import chalk from 'chalk';
 import os from 'node:os';
 import path from 'node:path';
-
-// ── Delay helper ─────────────────────────────────────────────────────────────
+import { W, accent, accentBold, LOGO_COLORS } from './theme.js';
+import { visLen, logoGradient, boxTop, boxBottom, boxDiv, boxLine, actionLabel, sessionNameBadge } from './helpers.js';
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-// ── Box-drawing helpers ──────────────────────────────────────────────────────
-
-const W = 62; // inner content width
-
-function visLen(s: string): number {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;]*m/g, '').length;
-}
-
-function boxTop(w = W): string {
-  return chalk.dim(`  ╭${'─'.repeat(w + 2)}╮`);
-}
-function boxBottom(w = W): string {
-  return chalk.dim(`  ╰${'─'.repeat(w + 2)}╯`);
-}
-function boxDiv(w = W): string {
-  return chalk.dim(`  ├${'─'.repeat(w + 2)}┤`);
-}
-function boxLine(content: string, w = W): string {
-  const pad = Math.max(0, w - visLen(content));
-  return `  ${chalk.dim('│')} ${content}${' '.repeat(pad)} ${chalk.dim('│')}`;
-}
-// ── Gradient palette ─────────────────────────────────────────────────────────
-
-const accent = chalk.hex('#60E1F0');
-const accentBold = chalk.hex('#60E1F0').bold;
-
-// Purple → cyan diagonal gradient applied to logo characters
-const LOGO_COLORS = ['#C084FC', '#A78BFA', '#818CF8', '#60A5FA', '#38BDF8', '#22D3EE'];
-
-function logoGradient(lines: string[]): string[] {
-  const maxLen = Math.max(...lines.map((l) => l.length));
-  const maxDiag = (lines.length - 1) + (maxLen - 1);
-  return lines.map((line, row) =>
-    line.split('').map((ch, col) => {
-      if (ch === ' ') return ch;
-      const t = maxDiag === 0 ? 0 : (row + col) / maxDiag;
-      const idx = Math.min(Math.floor(t * LOGO_COLORS.length), LOGO_COLORS.length - 1);
-      return chalk.hex(LOGO_COLORS[idx]).bold(ch);
-    }).join('')
-  );
-}
-
-// ── Banner ───────────────────────────────────────────────────────────────────
 
 export async function printBanner(): Promise<void> {
   console.clear();
@@ -70,7 +24,6 @@ export async function printBanner(): Promise<void> {
     '  ╚═════╝ ╚══════╝ ╚═╝  ╚═════╝ ',
   ];
 
-  // ── Diagonal-gradient logo (centered) ──
   const maxLogoLen = Math.max(...logo.map((l) => l.length));
   const termWidth  = process.stdout.columns || 80;
   const logoPad    = ' '.repeat(Math.max(0, Math.floor((termWidth - maxLogoLen) / 2)));
@@ -82,16 +35,14 @@ export async function printBanner(): Promise<void> {
 
   console.log();
 
-  // ── Tagline (centered) ──
-  const divider = chalk.dim('─'.repeat(18));
-  const star    = chalk.hex('#C084FC')('✦');
-  const title   = chalk.bold.white('Command Line Intelligence Companion');
-  const tagline = `${divider} ${star} ${title} ${star} ${divider}`;
+  const divider  = chalk.dim('─'.repeat(18));
+  const star     = chalk.hex('#C084FC')('✦');
+  const title    = chalk.bold.white('Command Line Intelligence Companion');
+  const tagline  = `${divider} ${star} ${title} ${star} ${divider}`;
   const taglinePad = ' '.repeat(Math.max(0, Math.floor((termWidth - visLen(tagline)) / 2)));
   console.log(`${taglinePad}${tagline}`);
   console.log();
 
-  // ── Info badges (centered) ──
   const sep  = chalk.dim(' · ');
   const info =
     `${chalk.hex('#C084FC').bold('v4.3')}${sep}` +
@@ -102,7 +53,6 @@ export async function printBanner(): Promise<void> {
   console.log(`${infoPad}${info}`);
   console.log();
 
-  // ── Compact 3-column tools panel ──
   console.log(boxTop());
   console.log(boxLine(`${accentBold('⚡ Tools & Capabilities')}`));
   console.log(boxDiv());
@@ -128,22 +78,14 @@ export async function printBanner(): Promise<void> {
   console.log(boxBottom());
   console.log();
 
-  // ── Hints ──
   console.log(`    ${chalk.dim('▸ Type')} ${accent('/help')} ${chalk.dim('for commands,')} ${accent('/status')} ${chalk.dim('for system info, or just start chatting.')}`);
   console.log(`    ${chalk.dim('▸ /compact · /model · /role · /undo · /retry · /tokens · /clear · /exit')}`);
   console.log();
 }
 
-// ── Help ─────────────────────────────────────────────────────────────────────
-
 export function printHelp(): void {
   console.log();
 
-  // ── 2-column layout constants ──────────────────────────────────────
-  // W2=73: inner width of the merged box.
-  // LW=34: visible width of the left column (before the │ divider).
-  // The │ divider lands at terminal column 39, so ┬/┼/┴ sit at offset 36
-  // from the first dash of the top/divider/bottom borders.
   const W2 = 73;
   const LW = 34;
 
@@ -162,7 +104,6 @@ export function printHelp(): void {
   const cmdItem = (cmd: string, desc: string) => `  ${accent(cmd.padEnd(10))}${chalk.dim(desc)}`;
   const cmdSub  = (sub: string, desc: string) => `    ${chalk.dim('·')} ${chalk.dim(sub.padEnd(8))}${chalk.dim(desc)}`;
 
-  // Left column — Capabilities (17 rows)
   const L: string[] = [
     capCat('Conversation'),
     capItem('💬', 'Chat / Q&A'),
@@ -183,7 +124,6 @@ export function printHelp(): void {
     '',
   ];
 
-  // Right column — Commands
   const R: string[] = [
     cmdCat('Session'),
     cmdItem('/session',  'Named sessions  /s'),
@@ -210,7 +150,6 @@ export function printHelp(): void {
     cmdItem('/help',     'Show this menu'),
   ];
 
-  // ── Render combined box ───────────────────────────────────────────
   console.log(box2Top());
   console.log(splitRow(accentBold('🧠 Capabilities'), chalk.yellow.bold('⌘  Commands')));
   console.log(box2Div());
@@ -223,7 +162,6 @@ export function printHelp(): void {
   console.log(box2Bottom());
   console.log();
 
-  // ── Prompt Ideas ──────────────────────────────────────────────────
   const ideas: [string, string][] = [
     ['①', 'what is the difference between TCP and UDP?'],
     ['②', 'list all python files in current directory'],
@@ -241,8 +179,6 @@ export function printHelp(): void {
   console.log(boxBottom());
   console.log();
 }
-
-// ── Status ───────────────────────────────────────────────────────────────────
 
 export function printStatus(opts: {
   messageCount: number;
@@ -281,67 +217,12 @@ export function printStatus(opts: {
   console.log();
 }
 
-// ── Step header ──────────────────────────────────────────────────────────────
-
 export function printStepHeader(step: number, maxSteps: number): void {
   console.log();
   const badge = chalk.bgHex('#0d2137').hex('#60E1F0').bold(` ⟳ Step ${step} / ${maxSteps} `);
   const trail = chalk.dim('─'.repeat(W - 10));
   console.log(`  ${badge}  ${trail}`);
 }
-
-// ── Action labels ────────────────────────────────────────────────────────────
-
-const ACTION_STYLES: Record<string, { icon: string; color: (s: string) => string }> = {
-  run_command:     { icon: '⚙️ ', color: chalk.yellow },
-  read_file:       { icon: '📖', color: chalk.hex('#60E1F0') },
-  write_file:      { icon: '✏️ ', color: chalk.hex('#C084FC') },
-  append_file:     { icon: '➕', color: chalk.hex('#C084FC') },
-  modify_file:     { icon: '🔧', color: chalk.hex('#F59E0B') },
-  list_directory:  { icon: '📂', color: chalk.hex('#60E1F0') },
-  search_files:    { icon: '🔍', color: chalk.hex('#34D399') },
-  web_search:      { icon: '🌐', color: chalk.hex('#34D399') },
-};
-
-export function actionLabel(action: string): string {
-  const style = ACTION_STYLES[action];
-  if (!style) return chalk.dim(`❓ ${action}`);
-  const name = action.replace(/_/g, ' ').toUpperCase();
-  return style.color(`${style.icon} ${name}`);
-}
-
-// ── Session color identity ────────────────────────────────────────────────────
-// Each session gets a consistent bg/fg color derived from its name so the same
-// session always renders in the same color (not random per-render).
-
-const SESSION_PALETTE: Array<{ bg: string; fg: string }> = [
-  { bg: '#7C3AED', fg: '#FFFFFF' }, // violet
-  { bg: '#DC2626', fg: '#FFFFFF' }, // red
-  { bg: '#059669', fg: '#FFFFFF' }, // emerald
-  { bg: '#2563EB', fg: '#FFFFFF' }, // blue
-  { bg: '#D97706', fg: '#000000' }, // amber
-  { bg: '#0891B2', fg: '#FFFFFF' }, // cyan
-  { bg: '#DB2777', fg: '#FFFFFF' }, // pink
-  { bg: '#65A30D', fg: '#FFFFFF' }, // lime
-  { bg: '#EA580C', fg: '#FFFFFF' }, // orange
-  { bg: '#0D9488', fg: '#FFFFFF' }, // teal
-];
-
-function sessionPaletteEntry(name: string): { bg: string; fg: string } {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  return SESSION_PALETTE[hash % SESSION_PALETTE.length];
-}
-
-/** Renders a session name as a compact colored badge: ` name ` */
-export function sessionNameBadge(name: string): string {
-  const { bg, fg } = sessionPaletteEntry(name);
-  return chalk.hex(fg).bgHex(bg)(` ${name} `);
-}
-
-
 
 export function printSeparator(): void {
   console.log(chalk.dim(`  ${'─'.repeat(W + 4)}`));
@@ -350,8 +231,7 @@ export function printSeparator(): void {
 export function promptPrintSeperator(sessionName?: string): void {
   const termWidth = process.stdout.columns || 80;
   const badge = sessionName ? ` ${sessionNameBadge(sessionName)}` : '';
-  // Badge has ANSI escape codes — measure visible length separately.
-  const badgeVisLen = sessionName ? sessionName.length + 2 : 0; // " " + name + " " + leading space
+  const badgeVisLen = sessionName ? sessionName.length + 2 : 0;
   const dashCount = Math.max(4, termWidth - badgeVisLen - 2);
   const dashes = chalk.cyanBright('─'.repeat(dashCount));
   console.log(`  ${dashes}${badge}`);
@@ -393,9 +273,9 @@ export function printContextBar(promptTokens: number, contextLimit: number, thre
 
   let barColor: (s: string) => string;
   let pctColor: (s: string) => string;
-  if (pct < 0.60)        { barColor = chalk.green;  pctColor = chalk.green.bold;  }
+  if (pct < 0.60)           { barColor = chalk.green;  pctColor = chalk.green.bold;  }
   else if (pct < threshold) { barColor = chalk.yellow; pctColor = chalk.yellow.bold; }
-  else                   { barColor = chalk.red;    pctColor = chalk.red.bold;    }
+  else                      { barColor = chalk.red;    pctColor = chalk.red.bold;    }
 
   const bar    = barColor('█'.repeat(filled)) + chalk.dim('░'.repeat(empty));
   const label  = pctColor(`${pctInt}%`);
@@ -414,3 +294,5 @@ export function printDimOutput(lines: string[], maxLines = 50): void {
     console.log(chalk.dim(`    ⋯ (${lines.length - maxLines} more lines truncated)`));
   }
 }
+
+export { sessionNameBadge };

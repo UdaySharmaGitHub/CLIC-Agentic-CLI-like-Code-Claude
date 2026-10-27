@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printDimOutput, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
 // Adding the zod schema for input validation

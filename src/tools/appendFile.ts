@@ -8,7 +8,7 @@ import { isPathSafe } from '../safety.js';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printToolBlocked, printRejected, printDimOutput, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
 import {z} from 'zod';

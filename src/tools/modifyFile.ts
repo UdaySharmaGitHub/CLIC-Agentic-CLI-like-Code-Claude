@@ -9,7 +9,7 @@ import { isPathSafe } from '../safety.js';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printToolBlocked, printRejected, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath, renderDiff } from './helpers.js';
 import { markRead } from '../watcher.js';

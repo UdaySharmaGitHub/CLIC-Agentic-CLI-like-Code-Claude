@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+
+# Private folder — local files, never pushed to GitHub
+.private/
 chat_history.json
 *.bak
 *.tsbuildinfo

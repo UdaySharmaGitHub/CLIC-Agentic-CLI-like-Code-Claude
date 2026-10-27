@@ -15,7 +15,7 @@ import ora from 'ora';
 import { streamMessage } from './openai.js';
 import { executeTool, type ConfirmFn } from './tools/index.js';
 import type { ChatMessage } from './memory.js';
-import { printStepHeader, actionLabel } from './ui.js';
+import { printStepHeader, actionLabel } from './ui/index.js';
 import { addNode, addEdge } from './knowledgeGraph.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────

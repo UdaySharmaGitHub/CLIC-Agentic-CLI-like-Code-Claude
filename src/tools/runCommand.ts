@@ -17,7 +17,7 @@ import { terminalManager } from '../terminal.js';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printToolBlocked, printRejected, printDimOutput, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
 // ── Legacy fallback flag (set by --no-terminals at startup) ──────────────────

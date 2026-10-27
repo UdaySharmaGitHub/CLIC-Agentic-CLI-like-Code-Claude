@@ -70,6 +70,7 @@ jobs:
           - test:export
           - test:terminal
           - test:web-search
+          - test:ui
 
     steps:
       - name: Check out repository

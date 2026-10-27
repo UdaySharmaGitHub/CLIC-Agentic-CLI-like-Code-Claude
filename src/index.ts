@@ -11,7 +11,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
-import { printBanner, printSeparator, promptPrintSeperator, printContextBar, sessionNameBadge } from './ui.js';
+import { printBanner, printSeparator, promptPrintSeperator, printContextBar, sessionNameBadge } from './ui/index.js';
 import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';

@@ -17,7 +17,7 @@ import { isCommandSafe } from '../safety.js';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printToolBlocked, printRejected, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
 // ── Schema (discriminated union on action) ────────────────────────────────────

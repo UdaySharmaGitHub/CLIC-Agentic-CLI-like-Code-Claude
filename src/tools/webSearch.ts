@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printRejected, printDimOutput, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { withRetry } from '../retry.js';
 import { z } from 'zod';

@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printRejected, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
 // Adding the zod schema for input validation
