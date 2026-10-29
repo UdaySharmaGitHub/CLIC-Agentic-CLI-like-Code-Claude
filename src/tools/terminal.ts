@@ -155,7 +155,6 @@ function handleRead(input: { action: 'read'; name?: string; lines?: number }): T
 
   try {
     const buf = terminalManager.read(name, lines);
-    const display = buf || chalk.dim('(buffer empty)');
     console.log(chalk.dim('  ────────────────────────────────────────────'));
     const visLines = (buf || '').split('\n').slice(-20);
     for (const l of visLines) console.log(`  ${chalk.dim(l)}`);
@@ -241,7 +240,7 @@ async function handleWait(
 ):Promise<ToolResult> {
   printToolHeader('terminal:wait', `${input.name}${input.pattern ? ` — /${input.pattern}/` : ' (until quiet)'}`);
   console.log();
-  
+
   try{
     const res = await terminalManager.waitFor(input.name,{
       pattern:input.pattern,
@@ -254,10 +253,13 @@ async function handleWait(
       return { output: `Timed out. Last output:\n${res.output}`, isError: true };
     }
 
-    const how = res.matched? 'pattern matched':'output settled';
+    const how = res.matched ? 'pattern matched'
+              : res.exitCode != null ? `command exited (code ${res.exitCode})`
+              : 'output settled';
+    const exitNote = res.exitCode != null ? ` Exit code: ${res.exitCode}.` : '';
     printToolSuccess(`Terminal "${input.name}" ready (${how}).`);
     printSeparator();
-    return {output:`Done (${how}). Output: \n${res.output}`,isError:false};
+    return {output:`Done (${how}).${exitNote} Output:\n${res.output}`,isError:false};
   }catch(err:unknown){
     const msg = err instanceof Error ? err.message : String(err);
     printToolError(msg);
