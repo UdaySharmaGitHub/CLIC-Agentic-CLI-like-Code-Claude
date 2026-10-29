@@ -11,7 +11,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
 import { intro, select, password, isCancel, outro } from '@clack/prompts';
-import { printBanner, printSeparator, promptPrintSeperator, printContextBar, sessionNameBadge } from './ui/index.js';
+import { printBanner, printSeparator, promptPrintSeperator, sessionNameBadge } from './ui/index.js';
 import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
@@ -36,7 +36,6 @@ import type { ConfirmFn } from './tools/index.js';
 import { fetchAvailableModelOptions } from './tools/listModelfromOpenAI.js';
 // Commands
 import { executeCommand, isSlashedCommand, slashCompleter, type CommandContext } from './commands/index.js';
-import ora from 'ora';
 // Pricing for the AI Models
 import { loadPricing } from './pricing.js';
 // Auto Context Window Guard + Auto-Compact
@@ -127,10 +126,10 @@ async function main(prompt: string | undefined, opts: {
   // ── Model selection — fetch live models from the API ──────────────────────
   // Skipped when --model flag is explicitly passed.
   if (!opts.model) {
-    const spinner = ora({ text: chalk.dim('  Fetching available models...'), color: 'cyan' }).start();
+    process.stdout.write(chalk.dim('  ⏳ Fetching available models...'));
     try {
       const modelOptions = await fetchAvailableModelOptions();
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
 
       if (modelOptions.length > 0) {
         const modelChoice = await select({
@@ -148,7 +147,7 @@ async function main(prompt: string | undefined, opts: {
         console.log(chalk.yellow(`  ⚠️  No models found. Using default: ${model}`));
       }
     } catch (err) {
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
       const errMsg = err instanceof Error ? err.message : String(err);
       console.log(chalk.yellow(`  ⚠️  Could not fetch models (${errMsg}). Using: ${model}`));
     }
@@ -486,13 +485,12 @@ async function main(prompt: string | undefined, opts: {
             model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: retryAc.signal,
           });
 
-          // Context bar + auto-compact guard
+          // Auto-compact guard (the context bar is printed per-step by the agent)
           const contextLimit = getContextLimit();
           const rawTokens = retryResult.promptTokens > 0
             ? retryResult.promptTokens
             : Math.ceil(getMessages().reduce((sum, m) =>
                 sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0) / 4);
-          printContextBar(rawTokens, contextLimit, CONTEXT_GUARD_THRESHOLD);
           if (rawTokens > contextLimit * CONTEXT_GUARD_THRESHOLD) {
             console.log(chalk.yellow(`  ⚠️  Auto-compacting...`));
             await runCompact(callLLM, 'auto');
@@ -530,13 +528,12 @@ async function main(prompt: string | undefined, opts: {
         model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: ac.signal,
       });
 
-      // Context bar + auto-compact guard
+      // Auto-compact guard (the context bar is printed per-step by the agent)
       const contextLimit = getContextLimit();
       const rawTokens = turnResult.promptTokens > 0
         ? turnResult.promptTokens
         : Math.ceil(getMessages().reduce((sum, m) =>
             sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0) / 4);
-      printContextBar(rawTokens, contextLimit, CONTEXT_GUARD_THRESHOLD);
       if (rawTokens > contextLimit * CONTEXT_GUARD_THRESHOLD) {
         console.log(chalk.yellow(`  ⚠️  Auto-compacting...`));
         await runCompact(callLLM, 'auto');

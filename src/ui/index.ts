@@ -1,55 +1,76 @@
 /**
- * src/ui/index.ts — Adapter shims
+ * src/ui/index.ts — UI adapter
  *
- * Exports the same public API as the original src/ui.ts.
- * Routes to Ink components when stdout is a real TTY; falls back to
- * the chalk-based implementations in fallback.ts for piped output,
- * --paste mode, and CI environments.
+ * CLIC is a scrolling-log CLI, so all one-shot output is rendered synchronously
+ * via chalk (see fallback.ts): instant, and it scrolls naturally like any log.
+ *
+ * Ink is reserved for the only two elements that genuinely need live rendering
+ * and never overlap other stdout writes:
+ *   - the animated startup Banner (runs once, fully awaited before the REPL)
+ *   - the transient "Thinking…" spinner (mounted only while the LLM is thinking,
+ *     torn down the instant the first token streams)
+ *
+ * Mixing a persistent Ink live-region with plain console.log during an agent
+ * turn corrupts output, so we deliberately avoid it.
  */
 
 import React from 'react';
 import { render } from 'ink';
+import chalk from 'chalk';
 
-// Components
+// Ink components (live rendering only)
 import { Banner } from './components/Banner.js';
-import { Help } from './components/Help.js';
-import { Status } from './components/Status.js';
-import { StepHeader } from './components/StepHeader.js';
-import { ContextBar } from './components/ContextBar.js';
-import { ToolHeader } from './components/ToolHeader.js';
-import { ToolResult } from './components/ToolResult.js';
-import { Separator, PromptSeparator } from './components/Separator.js';
-import { DimOutput } from './components/DimOutput.js';
+import { ThinkingSpinner } from './components/Spinner.js';
 
-// Fallback (non-TTY)
+// Synchronous chalk implementations for all static output
 import * as fb from './fallback.js';
 
-// Re-export pure helpers (used by callers that import from ui.ts today)
+// Re-export pure helpers (used by callers that import from ui today)
 export { actionLabel, sessionNameBadge } from './helpers.js';
 
 // ── TTY guard ────────────────────────────────────────────────────────────────
-// Ink requires a real TTY. Fall back to chalk for piped output, --paste, CI.
 const isTTY = () => process.stdout.isTTY === true;
 
-// ── One-shot render helper ───────────────────────────────────────────────────
-async function runOneShot(element: React.ReactElement): Promise<void> {
-  const { waitUntilRenderFlush, unmount } = render(element, { exitOnCtrlC: false });
-  await waitUntilRenderFlush();
-  unmount();
-}
-
-// ── Public API — identical signatures to original src/ui.ts ─────────────────
-
+// ── Animated startup banner (Ink; runs once, fully awaited) ──────────────────
 export async function printBanner(): Promise<void> {
   if (!isTTY()) return fb.printBanner();
-  process.stdout.write('\x1Bc'); // clear screen (equivalent to console.clear())
+  process.stdout.write('\x1Bc'); // clear screen
   const { waitUntilExit } = render(React.createElement(Banner), { exitOnCtrlC: false });
   await waitUntilExit();
 }
 
+// ── Transient "Thinking…" spinner ────────────────────────────────────────────
+// Mounted only while the LLM is thinking (nothing else writes to stdout then),
+// and torn down by stop() the instant the first token arrives — so the live Ink
+// region never coexists with the scrolling log. stop() is idempotent.
+export function startSpinner(): { stop: () => void } {
+  if (!isTTY()) {
+    process.stdout.write(chalk.dim('  ⏳ Thinking...'));
+    let stopped = false;
+    return {
+      stop: () => {
+        if (stopped) return;
+        stopped = true;
+        process.stdout.write('\r' + ' '.repeat(20) + '\r');
+      },
+    };
+  }
+  const instance = render(React.createElement(ThinkingSpinner), { exitOnCtrlC: false });
+  let stopped = false;
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      instance.clear();
+      instance.unmount();
+    },
+  };
+}
+
+// ── Static one-shot output — synchronous, scrolls like a log ─────────────────
+
 export function printHelp(): void {
-  if (!isTTY()) return fb.printHelp();
-  void runOneShot(React.createElement(Help));
+  fb.printHelp();
 }
 
 export function printStatus(opts: {
@@ -61,56 +82,45 @@ export function printStatus(opts: {
   contextLimit: number;
   sessionName?: string;
 }): void {
-  if (!isTTY()) return fb.printStatus(opts);
-  void runOneShot(React.createElement(Status, opts));
+  fb.printStatus(opts);
 }
 
 export function printStepHeader(step: number, maxSteps: number): void {
-  if (!isTTY()) return fb.printStepHeader(step, maxSteps);
-  void runOneShot(React.createElement(StepHeader, { step, maxSteps }));
+  fb.printStepHeader(step, maxSteps);
 }
 
 export function printSeparator(): void {
-  if (!isTTY()) return fb.printSeparator();
-  void runOneShot(React.createElement(Separator));
+  fb.printSeparator();
 }
 
 export function promptPrintSeperator(sessionName?: string): void {
-  if (!isTTY()) return fb.promptPrintSeperator(sessionName);
-  void runOneShot(React.createElement(PromptSeparator, { sessionName }));
+  fb.promptPrintSeperator(sessionName);
 }
 
 export function printToolHeader(toolName: string, detail: string): void {
-  if (!isTTY()) return fb.printToolHeader(toolName, detail);
-  void runOneShot(React.createElement(ToolHeader, { toolName, detail }));
+  fb.printToolHeader(toolName, detail);
 }
 
 export function printToolSuccess(message: string): void {
-  if (!isTTY()) return fb.printToolSuccess(message);
-  void runOneShot(React.createElement(ToolResult, { type: 'success', message }));
+  fb.printToolSuccess(message);
 }
 
 export function printToolError(message: string): void {
-  if (!isTTY()) return fb.printToolError(message);
-  void runOneShot(React.createElement(ToolResult, { type: 'error', message }));
+  fb.printToolError(message);
 }
 
 export function printToolBlocked(message: string): void {
-  if (!isTTY()) return fb.printToolBlocked(message);
-  void runOneShot(React.createElement(ToolResult, { type: 'blocked', message }));
+  fb.printToolBlocked(message);
 }
 
 export function printRejected(): void {
-  if (!isTTY()) return fb.printRejected();
-  void runOneShot(React.createElement(ToolResult, { type: 'rejected' }));
+  fb.printRejected();
 }
 
 export function printContextBar(promptTokens: number, contextLimit: number, threshold?: number): void {
-  if (!isTTY()) return fb.printContextBar(promptTokens, contextLimit, threshold);
-  void runOneShot(React.createElement(ContextBar, { promptTokens, contextLimit, threshold }));
+  fb.printContextBar(promptTokens, contextLimit, threshold);
 }
 
 export function printDimOutput(lines: string[], maxLines?: number): void {
-  if (!isTTY()) return fb.printDimOutput(lines, maxLines);
-  void runOneShot(React.createElement(DimOutput, { lines, maxLines }));
+  fb.printDimOutput(lines, maxLines);
 }

@@ -9,7 +9,6 @@
 
 import chalk from 'chalk';
 import { select, isCancel } from '@clack/prompts';
-import ora from 'ora';
 import { fetchAvailableModelOptions } from '../tools/listModelfromOpenAI.js';
 import type { SlashCommand } from './types.js';
 
@@ -26,14 +25,14 @@ export const command: SlashCommand = {
       return { type: 'update', updates: { model: newModel } };
     }
 
-    const spinner = ora({ text: chalk.dim('  Fetching available models...'), color: 'cyan' }).start();
+    process.stdout.write(chalk.dim('  ⏳ Fetching available models...'));
     let modelOptions: Array<{ value: string; label: string; hint: string }> = [];
 
     try {
       modelOptions = await fetchAvailableModelOptions();
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
     } catch (err) {
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
       console.log(chalk.yellow(`  ⚠️  Could not fetch models: ${err instanceof Error ? err.message : String(err)}`));
       console.log(chalk.dim(`  Current model: ${ctx.model}`));
       console.log();

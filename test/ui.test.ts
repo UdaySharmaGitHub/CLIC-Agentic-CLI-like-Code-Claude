@@ -2,6 +2,9 @@
  * UI module tests — pure helpers and Ink component output.
  * Run with: pnpm test:ui
  */
+// Tell React 19 we're in a test environment so React.act() doesn't warn.
+(globalThis as unknown as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
 import { W, LOGO_COLORS, SESSION_PALETTE, ACTION_STYLES } from '../src/ui/theme.js';
 import { pathToFileURL } from 'node:url';
 import { render } from 'ink';
@@ -190,6 +193,13 @@ export async function runUiTests(): Promise<{ passed: number; failed: number }> 
   eq('Banner contains tagline', bannerClean.includes('Command Line Intelligence Companion'), true);
   eq('Banner contains Tools & Capabilities', bannerClean.includes('Tools & Capabilities'), true);
   eq('Banner contains /help hint', bannerClean.includes('/help'), true);
+
+  // ── Spinner component ─────────────────────────────────────────
+  const { ThinkingSpinner } = await import('../src/ui/components/Spinner.js');
+
+  const spinnerOut = await renderInk(React.createElement(ThinkingSpinner, null));
+  eq('ThinkingSpinner renders Thinking text', spinnerOut.includes('Thinking'), true);
+  eq('ThinkingSpinner renders non-empty output', spinnerOut.trim().length > 0, true);
 
   console.log(`  ── ${passed} passed, ${failed} failed`);
   return { passed, failed };
