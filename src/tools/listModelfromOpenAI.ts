@@ -80,7 +80,7 @@ export async function execute(
   input: { filter?: string },
   _confirm: ConfirmFn,
 ): Promise<ToolResult> {
-  printToolHeader('list_models', 'Fetching from API endpoint');
+  await printToolHeader('list_models', 'Fetching from API endpoint');
 
   try {
     const client = createOpenAIClient();
@@ -105,16 +105,16 @@ export async function execute(
     }
     lines.push(sep);
 
-    printDimOutput(lines, 60);
+    await printDimOutput(lines, 60);
     console.log();
-    printToolSuccess(`${models.length} model(s) listed.`);
-    printSeparator();
+    await printToolSuccess(`${models.length} model(s) listed.`);
+    await printSeparator();
 
     return { output: lines.join('\n'), isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Failed to list models: ${msg}`);
-    printSeparator();
+    await printToolError(`Failed to list models: ${msg}`);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }

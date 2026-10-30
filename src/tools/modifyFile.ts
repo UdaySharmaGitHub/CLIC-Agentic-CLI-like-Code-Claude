@@ -42,12 +42,12 @@ export async function execute(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const filepath = resolvePath(input.filepath);
-  printToolHeader('modify_file', `Modifying ${filepath}`);
+  await printToolHeader('modify_file', `Modifying ${filepath}`);
 
   const safety = isPathSafe(filepath);
   if (!safety.safe) {
-    printToolBlocked(safety.reason!);
-    printSeparator();
+    await printToolBlocked(safety.reason!);
+    await printSeparator();
     return { output: `ERROR — protected file: ${filepath}`, isError: true };
   }
 
@@ -55,14 +55,14 @@ export async function execute(
   try {
     content = await fs.readFile(filepath, 'utf-8');
   } catch {
-    printToolError(`File not found: ${filepath}`);
-    printSeparator();
+    await printToolError(`File not found: ${filepath}`);
+    await printSeparator();
     return { output: `ERROR — file not found: ${filepath}`, isError: true };
   }
 
   if (!content.includes(input.find)) {
-    printToolError('Text not found in file. Cannot patch.');
-    printSeparator();
+    await printToolError('Text not found in file. Cannot patch.');
+    await printSeparator();
     return {
       output: `ERROR — find text not found in '${filepath}'. Read the file first to get the exact text.`,
       isError: true,
@@ -76,8 +76,8 @@ export async function execute(
   renderDiff(patch);
 
   if (!await confirm(`Approve this change to '${filepath}'?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected the modification.', isError: true };
   }
 
@@ -89,13 +89,13 @@ export async function execute(
     await fs.writeFile(filepath, patched, 'utf-8');
     markRead(filepath);
 
-    printToolSuccess(`File modified: ${filepath}`);
-    printSeparator();
+    await printToolSuccess(`File modified: ${filepath}`);
+    await printSeparator();
     return { output: `File '${filepath}' modified successfully. Backup saved at '${filepath}.bak'.`, isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Modification failed: ${msg}`);
-    printSeparator();
+    await printToolError(`Modification failed: ${msg}`);
+    await printSeparator();
     return { output: `ERROR — modification failed: ${msg}`, isError: true };
   }
 }

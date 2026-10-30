@@ -8,7 +8,7 @@ import path from 'node:path';
 import chalk from 'chalk';
 
 export const DEFAULT_MODEL = 'gpt-4o';
-export const DEFAULT_MAX_STEPS = 15;
+export const DEFAULT_MAX_STEPS = 20;
 export const HISTORY_FILE = process.env.AGENT_HISTORY_FILE || 'chat_history.json';
 export const TOKEN_GRAPH_FILE = process.env.AGENT_TOKEN_GRAPH_FILE || 'token_graph.json';
 
@@ -100,7 +100,7 @@ export const HISTORY_LOAD_LIMIT = 10;  // Load only the last 100 messages from h
 
 // ── Terminal pool constants ────────────────────────────────────────────────────
 export const TERMINAL_SHELL         = process.env.SHELL || 'bash';
-export const TERMINAL_MAX           = 8;          // max concurrent terminals
+export const TERMINAL_MAX           = 15;          // max concurrent terminals
 export const TERMINAL_CMD_TIMEOUT_MS = 120_000;   // per-command sentinel timeout (ms)
 export const TERMINAL_BUFFER_LINES  = 2_000;      // ring-buffer size per terminal
 

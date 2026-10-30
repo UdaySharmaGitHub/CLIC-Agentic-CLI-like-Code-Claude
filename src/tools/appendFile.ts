@@ -37,35 +37,35 @@ export async function execute(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const filepath = resolvePath(input.filepath);
-  printToolHeader('append_file', `Appending to ${filepath}`);
+  await printToolHeader('append_file', `Appending to ${filepath}`);
 
   const safety = isPathSafe(filepath);
   if (!safety.safe) {
-    printToolBlocked(safety.reason!);
-    printSeparator();
+    await printToolBlocked(safety.reason!);
+    await printSeparator();
     return { output: `ERROR — protected path: ${filepath}`, isError: true };
   }
 
   console.log(`  ${chalk.dim('  ── Content to Append ──────────────────────────────')}`);
-  printDimOutput(input.content.split('\n').slice(0, 10).map(l => `│  ${l}`));
+  await printDimOutput(input.content.split('\n').slice(0, 10).map(l => `│  ${l}`));
   console.log(`  ${chalk.dim('  ────────────────────────────────────────────────────')}`);
   console.log();
 
   if (!await confirm(`Approve append to '${filepath}'?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected the append.', isError: true };
   }
 
   try {
     await fs.appendFile(filepath, input.content + '\n', 'utf-8');
-    printToolSuccess(`Content appended to '${filepath}'.`);
-    printSeparator();
+    await printToolSuccess(`Content appended to '${filepath}'.`);
+    await printSeparator();
     return { output: `Content appended successfully to '${filepath}'.`, isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Append failed: ${msg}`);
-    printSeparator();
+    await printToolError(`Append failed: ${msg}`);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }

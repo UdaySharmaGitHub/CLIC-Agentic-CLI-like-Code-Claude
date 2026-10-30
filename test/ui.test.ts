@@ -201,6 +201,36 @@ export async function runUiTests(): Promise<{ passed: number; failed: number }> 
   eq('ThinkingSpinner renders Thinking text', spinnerOut.includes('Thinking'), true);
   eq('ThinkingSpinner renders non-empty output', spinnerOut.trim().length > 0, true);
 
+  // ── ui/index.ts — async adapter signatures ───────────────────────────────
+  // Print functions must return Promise<void>. Tests run in non-TTY (no real
+  // stdout), so the non-TTY chalk path fires synchronously inside the async
+  // wrapper — each call still returns a Promise.
+  const uiAdapter = await import('../src/ui/index.js');
+
+  const r1 = uiAdapter.printSeparator();
+  eq('printSeparator returns Promise', r1 instanceof Promise, true);
+  await r1;
+
+  const r2 = uiAdapter.printStepHeader(2, 5);
+  eq('printStepHeader returns Promise', r2 instanceof Promise, true);
+  await r2;
+
+  const r3 = uiAdapter.printToolHeader('read_file', 'src/index.ts');
+  eq('printToolHeader returns Promise', r3 instanceof Promise, true);
+  await r3;
+
+  const r4 = uiAdapter.printToolSuccess('Done.');
+  eq('printToolSuccess returns Promise', r4 instanceof Promise, true);
+  await r4;
+
+  const r5 = uiAdapter.printContextBar(5000, 100000);
+  eq('printContextBar returns Promise', r5 instanceof Promise, true);
+  await r5;
+
+  const r6 = uiAdapter.printContextBar(0, 100000);
+  eq('printContextBar(0 tokens) resolves without error', r6 instanceof Promise, true);
+  await r6;
+
   console.log(`  ── ${passed} passed, ${failed} failed`);
   return { passed, failed };
 }

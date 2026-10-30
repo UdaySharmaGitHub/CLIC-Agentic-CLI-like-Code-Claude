@@ -259,9 +259,9 @@ async function main(prompt: string | undefined, opts: {
     console.log(chalk.yellow.bold('  ⚠️  YOLO mode: All actions will be auto-approved!'));
   }
   console.log();
-  printSeparator();
+  await printSeparator();
   console.log(chalk.bold("  🚀 Agent ready! Type your request. (type '/help' for tips)"));
-  printSeparator();
+  await printSeparator();
   console.log();
 
   // ── Create confirm function ───────────────────────────────────────────────
@@ -407,9 +407,9 @@ async function main(prompt: string | undefined, opts: {
   while (true) {
     let userInput: string;
     try {
-      promptPrintSeperator(sessionName);
+      await promptPrintSeperator(sessionName);
       userInput = await askMultiline(`  ${chalk.cyan('❯')} `);
-      promptPrintSeperator();
+      await promptPrintSeperator();
     } catch {
       if (process.stdin.destroyed) {
         clearInterval(keepAlive);

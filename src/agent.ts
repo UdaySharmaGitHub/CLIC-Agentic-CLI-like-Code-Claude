@@ -93,7 +93,7 @@ export async function runAgentTurn(
     }
 
     if (steps > 1) {
-      printStepHeader(steps, options.maxSteps);
+      await printStepHeader(steps, options.maxSteps);
     }
 
     // ── Call LLM with streaming ──────────────────────────────────────────────
@@ -165,7 +165,7 @@ export async function runAgentTurn(
           ((systemPrompt?.length ?? 0) +
             messages.reduce((sum, m) => sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0)) / 4,
         );
-    printContextBar(currentContextTokens, getContextLimit(), CONTEXT_GUARD_THRESHOLD);
+    await printContextBar(currentContextTokens, getContextLimit(), CONTEXT_GUARD_THRESHOLD);
 
     // ── If no tool calls, the task is complete ───────────────────────────────
     if (response.toolCalls.length === 0) {

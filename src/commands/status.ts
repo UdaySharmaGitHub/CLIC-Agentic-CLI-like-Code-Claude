@@ -16,7 +16,7 @@ export const command:SlashCommand = {
     name:"/status",
     description:"Show System info and Session details",
     execute : async(ctx)=>{
-       printStatus({
+       await printStatus({
          messageCount:messageCount(),
         maxSteps:ctx.maxSteps,
         showRaw:ctx.showRaw,

@@ -40,12 +40,12 @@ export async function execute(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const filepath = resolvePath(input.filepath);
-  printToolHeader('write_file', `Writing to ${filepath}`);
+  await printToolHeader('write_file', `Writing to ${filepath}`);
 
   const safety = isPathSafe(filepath);
   if (!safety.safe) {
-    printToolBlocked(safety.reason!);
-    printSeparator();
+    await printToolBlocked(safety.reason!);
+    await printSeparator();
     return { output: `ERROR — protected path: ${filepath}`, isError: true };
   }
 
@@ -64,8 +64,8 @@ export async function execute(
   renderDiff(patch);
 
   if (!await confirm(`Approve write to '${filepath}'?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected the file write.', isError: true };
   }
 
@@ -74,13 +74,13 @@ export async function execute(
     const lines = input.content.split('\n');
     await fs.writeFile(filepath, input.content + '\n', 'utf-8');
     markRead(filepath);
-    printToolSuccess(`File written: ${filepath} (${lines.length} lines)`);
-    printSeparator();
+    await printToolSuccess(`File written: ${filepath} (${lines.length} lines)`);
+    await printSeparator();
     return { output: `File written successfully to '${filepath}' (${lines.length} lines).`, isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Write failed: ${msg}`);
-    printSeparator();
+    await printToolError(`Write failed: ${msg}`);
+    await printSeparator();
     return { output: `ERROR — failed to write file: ${msg}`, isError: true };
   }
 }

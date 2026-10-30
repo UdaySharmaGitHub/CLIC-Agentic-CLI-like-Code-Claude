@@ -78,7 +78,7 @@ export async function execute(
 ): Promise<ToolResult> {
   const termName = input.terminal ?? 'main';
 
-  printToolHeader('run_command', input.command);
+  await printToolHeader('run_command', input.command);
   console.log(`  ${chalk.yellow.bold('  Command:')} ${chalk.white(input.command)}`);
   if (_useTerminals) {
     console.log(`  ${chalk.dim('  Terminal:')} ${chalk.cyan(termName)}`);
@@ -87,14 +87,14 @@ export async function execute(
 
   const safety = isCommandSafe(input.command);
   if (!safety.safe) {
-    printToolBlocked(safety.reason!);
-    printSeparator();
+    await printToolBlocked(safety.reason!);
+    await printSeparator();
     return { output: `ERROR — command blocked by safety filter: ${safety.reason}`, isError: true };
   }
 
   if (!await confirm(`Approve execution?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected the command.', isError: true };
   }
 
@@ -109,12 +109,12 @@ export async function execute(
       const result = await terminalManager.exec(termName, input.command);
 
       const lines = result.output.split('\n');
-      printDimOutput(lines, 50);
+      await printDimOutput(lines, 50);
       console.log(`  ${chalk.dim('  ────────────────────────────────────────────')}`);
 
       if (result.timedOut) {
         console.log(`  ${chalk.yellow(`  ⏱  Command timed out — still running in terminal "${termName}". Use the terminal tool to read output or kill it.`)}`);
-        printSeparator();
+        await printSeparator();
         return {
           output: `[Command timed out — still running in terminal "${termName}"]\n${result.output}`,
           isError: true,
@@ -122,11 +122,11 @@ export async function execute(
       }
 
       if (result.exitCode === 0) {
-        printToolSuccess(`Command completed successfully (exit 0) in terminal "${termName}"`);
+        await printToolSuccess(`Command completed successfully (exit 0) in terminal "${termName}"`);
       } else {
         console.log(`  ${chalk.red(`  ⚠️  Command exited with code: ${result.exitCode} (terminal "${termName}")`)}`);
       }
-      printSeparator();
+      await printSeparator();
 
       return {
         output:  formatOutput(result.output, result.exitCode),
@@ -134,8 +134,8 @@ export async function execute(
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      printToolError(`Command execution failed: ${msg}`);
-      printSeparator();
+      await printToolError(`Command execution failed: ${msg}`);
+      await printSeparator();
       return { output: `ERROR — ${msg}`, isError: true };
     }
   }
@@ -151,15 +151,15 @@ export async function execute(
 
     const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
     const lines  = output.split('\n');
-    printDimOutput(lines, 50);
+    await printDimOutput(lines, 50);
 
     console.log(`  ${chalk.dim('  ────────────────────────────────────────────')}`);
     if (result.exitCode === 0) {
-      printToolSuccess(`Command completed successfully (exit 0)`);
+      await printToolSuccess(`Command completed successfully (exit 0)`);
     } else {
       console.log(`  ${chalk.red(`  ⚠️  Command exited with code: ${result.exitCode}`)}`);
     }
-    printSeparator();
+    await printSeparator();
 
     return {
       output:  formatOutput(output, result.exitCode ?? null),
@@ -167,8 +167,8 @@ export async function execute(
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Command execution failed: ${msg}`);
-    printSeparator();
+    await printToolError(`Command execution failed: ${msg}`);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }

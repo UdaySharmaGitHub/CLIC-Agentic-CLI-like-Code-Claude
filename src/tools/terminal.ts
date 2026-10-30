@@ -88,40 +88,40 @@ async function handleCreate(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const name = input.name ?? autoName();
-  printToolHeader('terminal:create', name);
+  await printToolHeader('terminal:create', name);
   if (input.cwd) console.log(`  ${chalk.dim('  cwd:')} ${chalk.white(input.cwd)}`);
   console.log();
 
   if (!await confirm(`Spawn terminal "${name}"?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected terminal creation.', isError: true };
   }
 
   try {
     await terminalManager.spawn(name, input.cwd);
     const info = terminalManager.get(name)!;
-    printToolSuccess(`Terminal "${name}" ready (pid=${info.pid})`);
-    printSeparator();
+    await printToolSuccess(`Terminal "${name}" ready (pid=${info.pid})`);
+    await printSeparator();
     return {
       output: `Terminal "${name}" spawned and ready (pid=${info.pid}, cwd=${info.cwd}).`,
       isError: false,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg);
-    printSeparator();
+    await printToolError(msg);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }
 
-function handleList(): ToolResult {
-  printToolHeader('terminal:list', '');
+async function handleList(): Promise<ToolResult> {
+  await printToolHeader('terminal:list', '');
   console.log();
   const list = terminalManager.list();
   if (list.length === 0) {
     console.log(chalk.dim('  No terminals active.'));
-    printSeparator();
+    await printSeparator();
     return { output: 'No terminals active.', isError: false };
   }
   for (const t of list) {
@@ -137,7 +137,7 @@ function handleList(): ToolResult {
       (t.lastCommand ? `  last=${chalk.dim(t.lastCommand.slice(0, 40))}` : ''),
     );
   }
-  printSeparator();
+  await printSeparator();
   return {
     output: list.map(t =>
       `${t.name}: status=${t.status}, pid=${t.pid ?? '?'}, cwd=${t.cwd}` +
@@ -147,10 +147,10 @@ function handleList(): ToolResult {
   };
 }
 
-function handleRead(input: { action: 'read'; name?: string; lines?: number }): ToolResult {
+async function handleRead(input: { action: 'read'; name?: string; lines?: number }): Promise<ToolResult> {
   const name  = input.name  ?? 'main';
   const lines = input.lines ?? 50;
-  printToolHeader('terminal:read', `${name} (last ${lines} lines)`);
+  await printToolHeader('terminal:read', `${name} (last ${lines} lines)`);
   console.log();
 
   try {
@@ -159,12 +159,12 @@ function handleRead(input: { action: 'read'; name?: string; lines?: number }): T
     const visLines = (buf || '').split('\n').slice(-20);
     for (const l of visLines) console.log(`  ${chalk.dim(l)}`);
     console.log(chalk.dim('  ────────────────────────────────────────────'));
-    printSeparator();
+    await printSeparator();
     return { output: buf || '(buffer empty)', isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg);
-    printSeparator();
+    await printToolError(msg);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }
@@ -173,25 +173,25 @@ async function handleWrite(
   input: { action: 'write'; name: string; input: string },
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
-  printToolHeader('terminal:write', input.name);
+  await printToolHeader('terminal:write', input.name);
   console.log(`  ${chalk.dim('  input:')} ${chalk.white(JSON.stringify(input.input))}`);
   console.log();
 
   if (!await confirm(`Send input to terminal "${input.name}"?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected write.', isError: true };
   }
 
   try {
     terminalManager.write(input.name, input.input);
-    printToolSuccess(`Input sent to "${input.name}"`);
-    printSeparator();
+    await printToolSuccess(`Input sent to "${input.name}"`);
+    await printSeparator();
     return { output: `Sent ${input.input.length} chars to terminal "${input.name}".`, isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg);
-    printSeparator();
+    await printToolError(msg);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }
@@ -202,34 +202,34 @@ async function handleStart(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const name = input.name ?? 'main';
-  printToolHeader('terminal:start', `${name} — ${input.command}`);
+  await printToolHeader('terminal:start', `${name} — ${input.command}`);
   console.log();
 
   const safety = isCommandSafe(input.command);
   if (!safety.safe) {
-    printToolBlocked(safety.reason!);
-    printSeparator();
+    await printToolBlocked(safety.reason!);
+    await printSeparator();
     return { output: `ERROR — command blocked: ${safety.reason}`, isError: true };
   }
 
   if (!await confirm(`Start background process in terminal "${name}"?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected background start.', isError: true };
   }
 
   try {
     await terminalManager.startBackground(name, input.command);
     console.log(chalk.cyan(`  ⚡ Background process started in "${name}". Use terminal(read) to poll output.`));
-    printSeparator();
+    await printSeparator();
     return {
       output: `Background process started in terminal "${name}": ${input.command}. Use terminal(action=read, name="${name}") to check output.`,
       isError: false,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg);
-    printSeparator();
+    await printToolError(msg);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }
@@ -238,7 +238,7 @@ async function handleStart(
 async function handleWait(
   input:{action:'wait';name:string;pattern?:string;timeout?:number},
 ):Promise<ToolResult> {
-  printToolHeader('terminal:wait', `${input.name}${input.pattern ? ` — /${input.pattern}/` : ' (until quiet)'}`);
+  await printToolHeader('terminal:wait', `${input.name}${input.pattern ? ` — /${input.pattern}/` : ' (until quiet)'}`);
   console.log();
 
   try{
@@ -248,8 +248,8 @@ async function handleWait(
     });
 
     if(res.timedOut){
-       printToolError(`Timed out waiting for "${input.name}".`);
-      printSeparator();
+       await printToolError(`Timed out waiting for "${input.name}".`);
+      await printSeparator();
       return { output: `Timed out. Last output:\n${res.output}`, isError: true };
     }
 
@@ -257,13 +257,13 @@ async function handleWait(
               : res.exitCode != null ? `command exited (code ${res.exitCode})`
               : 'output settled';
     const exitNote = res.exitCode != null ? ` Exit code: ${res.exitCode}.` : '';
-    printToolSuccess(`Terminal "${input.name}" ready (${how}).`);
-    printSeparator();
+    await printToolSuccess(`Terminal "${input.name}" ready (${how}).`);
+    await printSeparator();
     return {output:`Done (${how}).${exitNote} Output:\n${res.output}`,isError:false};
   }catch(err:unknown){
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg);
-    printSeparator();
+    await printToolError(msg);
+    await printSeparator();
     return { output:`Error - ${msg}`,isError: true};
   }
 }
@@ -274,24 +274,24 @@ async function handleKill(
   input: { action: 'kill'; name: string },
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
-  printToolHeader('terminal:kill', input.name);
+  await printToolHeader('terminal:kill', input.name);
   console.log();
 
   if (!await confirm(`Kill terminal "${input.name}"?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected kill.', isError: true };
   }
 
   try {
     await terminalManager.kill(input.name);
-    printToolSuccess(`Terminal "${input.name}" killed.`);
-    printSeparator();
+    await printToolSuccess(`Terminal "${input.name}" killed.`);
+    await printSeparator();
     return { output: `Terminal "${input.name}" killed and removed from pool.`, isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg);
-    printSeparator();
+    await printToolError(msg);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }

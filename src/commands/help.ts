@@ -12,7 +12,7 @@ export const command:SlashCommand={
     name:'/help',
     description:'show capabilites and Commands',
     execute:async()=>{
-        printHelp();
+        await printHelp();
         return {type:'continue'};
     },
 };
