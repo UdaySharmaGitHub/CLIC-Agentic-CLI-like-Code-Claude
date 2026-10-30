@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
-import { select, isCancel } from '@clack/prompts';
+import { selectPrompt, CANCEL } from '../ui/index.js';
 import { getMessages, getHistoryFile } from '../memory.js';
 import { isEphemeral } from '../privacy.js';
 import type { ChatMessage, ToolCall } from '../memory.js';
@@ -176,15 +176,15 @@ export const command: SlashCommand = {
     if (args && (VALID_FORMATS as readonly string[]).includes(args)) {
       format = args as Format;
     } else {
-      const picked = await select({
+      const picked = await selectPrompt({
         message: 'Export format:',
-        options: [
+        items: [
           { value: 'markdown', label: 'Markdown', hint: 'Human-readable .md file' },
           { value: 'json',     label: 'JSON',     hint: 'Raw message array with metadata' },
           { value: 'html',     label: 'HTML',     hint: 'Self-contained styled page' },
         ],
       });
-      if (isCancel(picked)) {
+      if (picked === CANCEL) {
         console.log(chalk.dim('  Export cancelled.'));
         console.log();
         return { type: 'continue' };
@@ -204,8 +204,8 @@ export const command: SlashCommand = {
         { value: 'window', label: 'Current window', hint: `${getMessages().length} messages in memory` },
         { value: 'full',   label: 'Full history',   hint: 'Load complete history from disk' },
       ];
-      const pickedScope = await select({ message: 'Export scope:', options: scopeOptions });
-      if (isCancel(pickedScope)) {
+      const pickedScope = await selectPrompt({ message: 'Export scope:', items: scopeOptions });
+      if (pickedScope === CANCEL) {
         console.log(chalk.dim('  Export cancelled.'));
         console.log();
         return { type: 'continue' };

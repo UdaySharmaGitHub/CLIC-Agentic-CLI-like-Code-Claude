@@ -55,3 +55,21 @@ export function sessionNameBadge(name: string): string {
   const { bg, fg } = sessionPaletteEntry(name);
   return chalk.hex(fg).bgHex(bg)(` ${name} `);
 }
+
+/** Sentinel returned by interactive prompts when the user cancels (Esc / Ctrl+C). Replaces @clack's isCancel. */
+export const CANCEL: unique symbol = Symbol('clic.prompt.cancel');
+
+/** One selectable row for <SelectPicker>. `hint` renders dimmed after the label. */
+export interface SelectItem<T = string> {
+  label: string;
+  value: T;
+  hint?: string;
+}
+
+/** Index of the item whose value === initialValue, or 0 when absent/not found. */
+export function selectInitialIndex<T>(items: SelectItem<T>[], initialValue?: T): number {
+  if (initialValue === undefined) return 0;
+  const i = items.findIndex(it => it.value === initialValue);
+  return i >= 0 ? i : 0;
+}
+

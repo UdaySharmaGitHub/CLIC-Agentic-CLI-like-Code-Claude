@@ -32,12 +32,19 @@ import { ToolResult } from './components/ToolResult.js';
 import { DimOutput } from './components/DimOutput.js';
 import { Help } from './components/Help.js';
 import { Status } from './components/Status.js';
+import { SelectPicker } from './components/SelectPicker.js';
+import type { SelectPickerProps } from './components/SelectPicker.js';
+import { TextPrompt } from './components/TextPrompt.js';
+import { ConfirmDialog } from './components/ConfirmDialog.js';
+import { CANCEL, selectInitialIndex } from './helpers.js';
+import type { SelectItem } from './helpers.js';
 
 // Synchronous chalk implementations for the non-TTY fallback path
 import * as fb from './fallback.js';
 
 // Re-export pure helpers (used by callers that import from ui today)
-export { actionLabel, sessionNameBadge } from './helpers.js';
+export { actionLabel, sessionNameBadge, CANCEL } from './helpers.js';
+export type { SelectItem } from './helpers.js';
 
 // ── TTY guard ────────────────────────────────────────────────────────────────
 const isTTY = () => process.stdout.isTTY === true;
@@ -65,6 +72,85 @@ async function oneShot(element: React.ReactElement): Promise<void> {
   } finally {
     resolve();
   }
+}
+
+// ── Interactive Ink render ─────────────────────────────────────────────────────
+// Like oneShot, but resolves a value from user input. Mounts the component, waits
+// for it to call resolve() (on select / submit / cancel), then clears + unmounts.
+// Chained through the same _renderQueue mutex so it never races a scrolling render.
+async function interactive<T>(
+  factory: (resolve: (value: T) => void) => React.ReactElement,
+): Promise<T> {
+  const prev = _renderQueue;
+  let release!: () => void;
+  _renderQueue = new Promise<void>(r => { release = r; });
+  try {
+    await prev;
+    return await new Promise<T>((resolveValue) => {
+      const holder: { instance?: ReturnType<typeof render> } = {};
+      const onResolve = (value: T) => {
+        holder.instance?.clear();
+        holder.instance?.unmount();
+        resolveValue(value);
+      };
+      holder.instance = render(factory(onResolve), { exitOnCtrlC: false });
+    });
+  } finally {
+    release();
+  }
+}
+
+export async function selectPrompt<T = string>(opts: {
+  message: string;
+  items: SelectItem<T>[];
+  initialValue?: T;
+}): Promise<T | typeof CANCEL> {
+  if (!isTTY()) {
+    const i = selectInitialIndex(opts.items, opts.initialValue);
+    return opts.items[i]!.value;
+  }
+  return interactive<T | typeof CANCEL>((resolve) =>
+    React.createElement(SelectPicker as React.FC<SelectPickerProps<T>>, {
+      message: opts.message,
+      items: opts.items,
+      initialValue: opts.initialValue,
+      onSelect: (v: T) => resolve(v),
+      onCancel: () => resolve(CANCEL),
+    }),
+  );
+}
+
+export async function textPrompt(opts: {
+  message: string;
+  placeholder?: string;
+  mask?: string;
+  validate?: (value: string) => string | undefined;
+}): Promise<string | typeof CANCEL> {
+  if (!isTTY()) return CANCEL;
+  return interactive<string | typeof CANCEL>((resolve) =>
+    React.createElement(TextPrompt, {
+      message: opts.message,
+      placeholder: opts.placeholder,
+      mask: opts.mask,
+      validate: opts.validate,
+      onSubmit: (v: string) => resolve(v),
+      onCancel: () => resolve(CANCEL),
+    }),
+  );
+}
+
+export async function confirmPrompt(opts: {
+  message: string;
+  detail?: string;
+}): Promise<boolean> {
+  if (!isTTY()) return false;
+  return interactive<boolean>((resolve) =>
+    React.createElement(ConfirmDialog, {
+      message: opts.message,
+      detail: opts.detail,
+      onConfirm: (accepted: boolean) => resolve(accepted),
+    }),
+  );
 }
 
 // ── Animated startup banner (Ink; runs once, fully awaited) ──────────────────

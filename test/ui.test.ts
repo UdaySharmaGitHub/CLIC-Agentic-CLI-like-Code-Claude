@@ -84,6 +84,29 @@ export async function runUiTests(): Promise<{ passed: number; failed: number }> 
   const contentLine = boxLine('hello');
   eq('boxLine contains content', contentLine.includes('hello'), true);
 
+  // ── Phase 4: CANCEL + selectInitialIndex ──────────────────
+  const { CANCEL, selectInitialIndex } = await import('../src/ui/helpers.js');
+  eq('CANCEL is a symbol', typeof CANCEL, 'symbol');
+  eq('selectInitialIndex finds the initial value', selectInitialIndex([{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }], 'b'), 1);
+  eq('selectInitialIndex missing value → 0', selectInitialIndex([{ label: 'A', value: 'a' }], 'z'), 0);
+  eq('selectInitialIndex no initial → 0', selectInitialIndex([{ label: 'A', value: 'a' }]), 0);
+
+  // ── Phase 4: adapter non-TTY contract ─────────────────────
+  const uiMod = await import('../src/ui/index.js');
+  const savedTTY = process.stdout.isTTY;
+  (process.stdout as { isTTY?: boolean }).isTTY = false;
+  try {
+    eq('selectPrompt non-TTY returns initialValue',
+      await uiMod.selectPrompt({ message: 'm', items: [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }], initialValue: 'b' }), 'b');
+    eq('selectPrompt non-TTY returns first item when no initial',
+      await uiMod.selectPrompt({ message: 'm', items: [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }] }), 'a');
+    eq('textPrompt non-TTY returns CANCEL',
+      (await uiMod.textPrompt({ message: 'name' })) === CANCEL, true);
+    eq('confirmPrompt non-TTY returns false', await uiMod.confirmPrompt({ message: 'ok?' }), false);
+  } finally {
+    (process.stdout as { isTTY?: boolean }).isTTY = savedTTY;
+  }
+
   // ── Separator component ─────────────────────────────────────
   const { Separator, PromptSeparator } = await import('../src/ui/components/Separator.js');
 

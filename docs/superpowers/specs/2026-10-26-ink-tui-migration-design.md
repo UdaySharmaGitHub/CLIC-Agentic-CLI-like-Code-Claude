@@ -220,28 +220,81 @@ The existing `askMultiline()` logic (line ending `\` or unclosed triple-backtick
 
 ---
 
-## Phase 4 — Interactive Pickers
+## Phase 4 — Interactive Pickers (full `@clack/prompts` removal)
 
 **Timeline:** Week 4  
-**Risk:** Low — isolated to picker surfaces  
-**Callers changed:** `src/index.ts` (startup pickers), `src/commands/` (confirm dialog)
+**Risk:** Low — isolated to interactive surfaces  
+**Callers changed:** `src/index.ts` (startup wizard + REPL confirm), `src/commands/` (model, role, privacy, export, session), `src/tools/` unchanged (they call the injected `ConfirmFn`)
 
-### Picker replacements
+### Scope decision (2026-10-30)
 
-| Current | Replacement | Used by |
+The original Phase 4 table named only model/role/privacy pickers + tool `confirm()`, but the completion criterion is **`@clack/prompts` removed from `package.json`**. Those two don't agree: full removal requires migrating *every* `@clack` primitive. Phase 4 adopts **full removal** — a half-migrated input layer (some Ink pickers, some `@clack`) ships two input engines, two cancellation idioms, and visibly inconsistent pickers in one session. This requires a **third component the original spec never listed: `<TextPrompt>`** (text + masked password input).
+
+### Coexistence with the readline REPL
+
+The spec's Phase 3 (persistent `<ReplApp>` + `<TextInput>`, `readline` removal) was **not** implemented — the Phase 3 that shipped replaced remaining chalk `print*` calls with one-shot Ink renders, and the REPL remains `readline`-based. Phase 4's interactive Ink surfaces therefore coexist with that readline REPL. This is safe because every interactive surface is a **one-shot mount**: Ink takes raw-mode stdin, resolves on select/submit/cancel, then unmounts — exactly how `@clack` behaves today. The REPL's readline interface is created per-prompt and always closed (`rl.close()` in `finally`) before any command or confirm runs, so Ink and readline never own stdin simultaneously.
+
+### Interactive-render adapter
+
+The Phase 4 analogue of Phase 3's `oneShot` — an interactive helper that resolves a value, chained through the same `_renderQueue` mutex so it never races the scrolling-log renders:
+
+```typescript
+async function interactive<T>(
+  factory: (resolve: (value: T) => void) => React.ReactElement,
+): Promise<T> {
+  // mount Ink app; the component calls resolve(value) on select/submit/cancel;
+  // then await waitUntilExit() + unmount(); serialised via _renderQueue
+}
+```
+
+### New components
+
+| Component | Built on | Replaces |
 |---|---|---|
-| `@clack/prompts select` (model) | `<SelectPicker />` | `src/index.ts` startup |
-| `@clack/prompts select` (role) | `<SelectPicker />` | `src/index.ts` startup |
-| `@clack/prompts select` (privacy) | `<SelectPicker />` | `src/commands/privacy.ts` |
-| `confirm()` in tools | `<ConfirmDialog />` | `src/tools/` (all destructive ops) |
+| `<SelectPicker />` | Ink `useInput` + `Text`/`Box` primitives (no external lib) | all 7 `select` sites |
+| `<TextPrompt />` | Ink `useInput` + `Text` (masked via a `mask` prop) | `password` (API key, `mask="*"`) + 2 `text` (session new/rename) |
+| `<ConfirmDialog />` | Ink `useInput` (y/n) | readline tool-confirm + `/session` delete `confirm` |
+
+**Why custom components, not `ink-select-input` / `ink-text-input`:** those libs accept `ink >=5` but aren't tested against the brand-new ink 8 already installed, and `ink-select-input`'s `itemComponent` only receives `{label, isSelected}` — it cannot render the `@clack`-style dim hints without smuggling ANSI into label strings. Owning ~110 lines across three focused components gives exact theme control (the `❯` cursor, accent highlight, dim hints) and adds zero runtime dependencies.
+
+### Full migration surface
+
+| Current `@clack` call | Replacement | Site |
+|---|---|---|
+| `select` (model) | `<SelectPicker>` | `src/index.ts` startup |
+| `select` (role) | `<SelectPicker>` | `src/index.ts` startup |
+| `select` (model) | `<SelectPicker>` | `src/commands/model.ts` |
+| `select` (role) | `<SelectPicker>` | `src/commands/role.ts` |
+| `select` (privacy) | `<SelectPicker>` | `src/commands/privacy.ts` |
+| `select` (format, scope) | `<SelectPicker>` | `src/commands/export.ts` (×2) |
+| `select` (switch) | `<SelectPicker>` | `src/commands/session.ts` |
+| `text` (new, rename) | `<TextPrompt>` | `src/commands/session.ts` (×2) |
+| `password` (API key) | `<TextPrompt mask="*">` | `src/index.ts` startup |
+| `confirm` (delete) | `<ConfirmDialog>` | `src/commands/session.ts` |
+| readline tool-confirm | `<ConfirmDialog>` | `src/index.ts` (`confirmFn` + `createSingleTurnConfirmFn`) |
+| `intro` / `outro` | plain chalk lines | `src/index.ts` startup |
+| `isCancel` | `CANCEL` sentinel check | all of the above |
 
 ### `<SelectPicker />` props
 
 ```typescript
-interface SelectPickerProps {
-  items: Array<{ label: string; value: string; description?: string }>;
+interface SelectPickerProps<T = string> {
+  items: Array<{ label: string; value: T; description?: string }>;
   title: string;
-  onSelect: (value: string) => void;
+  initialValue?: T;                      // highlights current choice (e.g. /privacy)
+  onSelect: (value: T | typeof CANCEL) => void;
+}
+```
+
+### `<TextPrompt />` props
+
+```typescript
+interface TextPromptProps {
+  message: string;
+  placeholder?: string;
+  mask?: string;                         // e.g. "*" for the API-key password
+  validate?: (value: string) => string | undefined;  // error string or undefined
+  onSubmit: (value: string | typeof CANCEL) => void;
 }
 ```
 
@@ -251,11 +304,29 @@ interface SelectPickerProps {
 interface ConfirmDialogProps {
   message: string;
   detail?: string;
-  onConfirm: (accepted: boolean) => void;
+  onConfirm: (accepted: boolean) => void;  // Esc / Ctrl+C → false (reject)
 }
 ```
 
-After Phase 4 complete: `@clack/prompts` removed from `package.json`.
+### Cancellation contract
+
+A module-level `CANCEL` sentinel replaces `@clack`'s `isCancel`. `<SelectPicker>` and `<TextPrompt>` resolve `CANCEL` on Esc / Ctrl+C; each call site checks for it exactly where it calls `isCancel` today (startup → print "Cancelled" and `process.exit(0)`; mid-session command → `return { type: 'continue' }`). `<ConfirmDialog>` resolves `false` on cancel, matching the current readline catch behavior.
+
+### Non-TTY contract
+
+Ink cannot enter raw mode on a pipe, so no interactive surface renders in non-TTY (`--paste`, CI, piped stdin). Fallbacks, mirroring the existing non-TTY behavior:
+
+- `<SelectPicker>` → resolve the `initialValue` if set, else the first item's value (startup model → `DEFAULT_MODEL`, role → none).
+- `<ConfirmDialog>` → auto-reject (`false`) unless `--yolo` is set (preserves today's exhausted-stdin behavior).
+- `<TextPrompt>` password → must be supplied via `API_KEY` env; if absent, print a clear error and `process.exit(1)` rather than hang.
+
+### Dependency changes
+
+```bash
+pnpm remove @clack/prompts
+```
+
+No packages are added — the three interactive components are built on Ink primitives already installed (`ink` 8, `react` 19, `@types/react`). `ink-spinner` was added in Phase 2.
 
 ---
 
