@@ -1,7 +1,8 @@
 # ADR-011: Ink as TUI Renderer (Migration from Chalk)
 
 **Date:** 2026-10-26  
-**Status:** Proposed  
+**Status:** Accepted  
+**Completed:** 2026-10-30  
 **Deciders:** Uday Sharma
 
 ---
@@ -87,21 +88,27 @@ Approach 1 is the only strategy where every intermediate state is a shippable, f
 
 ---
 
-## Decision 4 — Input Handling: Full Ink Input (`<TextInput />`)
+## Decision 4 — Input Handling: Ink for Interactive Pickers, readline Retained for REPL
 
 ### Options considered
 
 **Option A — Full Ink input**  
-Replace `readline` entirely with Ink's `<TextInput />` component (`ink-text-input`). Ink owns stdin for the lifetime of the session. The cursor blinks inside the rendered Ink app; history and multiline input are handled by Ink's `useInput` hook.
+Replace `readline` entirely with Ink's `<TextInput />` component (`ink-text-input`). Ink owns stdin for the lifetime of the session. History and multiline input handled by Ink's `useInput` hook.
 
-**Option B — Ink for rendering only, keep readline for input**  
-Use Ink's `Static` render mode for panels (banner, tool headers, context bar). Let `readline` own stdin for the prompt line. The two systems coexist: Ink renders above, readline captures below.
+**Option B — Ink for interactive pickers + renders, keep readline for REPL**  
+Use one-shot Ink mounts (via a `_renderQueue` mutex) for interactive surfaces (model/role pickers, API-key prompt, confirmations). The REPL prompt line stays readline-based. Ink mounts, resolves a value, unmounts — exactly how `@clack/prompts` behaved. readline and Ink never own stdin simultaneously.
 
-### Chosen: Option A — Full Ink input
+### Chosen: Option B — Ink for interactive pickers, readline retained for REPL
 
 ### Why
 
-Option B cannot deliver the defining Claude Code UX: an input line anchored at the bottom while output scrolls above it. Ink's `Static` mode produces output that scrolls up but cannot hold a fixed bottom region — that requires Ink owning the full render area. In practice, Option B also produces cursor glitches: when a streaming LLM chunk arrives while the user is typing, readline's cursor state and Ink's redraws conflict, producing visible artifacts in real terminals. Option A eliminates the conflict entirely — one system owns stdin for the full session. All readline calls in CLIC are isolated to `ask()` and `askMultiline()` in `src/index.ts`, making the Phase 3 swap a clean, bounded change.
+The original plan targeted Option A (full readline replacement) but implementation revealed it was not necessary to achieve the stated goal. The actual driver was removing `@clack/prompts` and gaining reactive panels — not replacing the REPL input line itself. Option B fulfils both goals without the high risk of a readline-to-TextInput swap:
+
+- Every interactive surface (7 selects, 2 text inputs, 1 password, 2 confirms) is now an Ink component with a consistent `CANCEL` sentinel, indistinguishable to the user from Option A.
+- The readline REPL is unaffected — multiline input, tab completion, and `/` commands continue working exactly as before.
+- The one-shot mount pattern (`interactive<T>()` chained through `_renderQueue`) guarantees Ink and readline never own stdin at the same time, eliminating the cursor-conflict risk that made Option B unworkable in earlier analysis.
+
+Option A remains possible as a future Phase 5 if the anchored-input-line UX is ever prioritised, with no rework required — the Ink component layer is already in place.
 
 ---
 
@@ -112,7 +119,7 @@ Option B cannot deliver the defining Claude Code UX: an input line anchored at t
 | UI target | A) Reactive · B) Visual style · C) Interactive | **A — Reactive panels** | Only option that matches Claude Code's "alive" feel; subsumes B and C |
 | Library | Ink · Blessed · Enhanced Chalk · Terminal-Kit | **Ink** | Claude Code uses it; only option with reactive rendering + active TypeScript ecosystem |
 | Migration | Bottom-Up · Core-First · Parallel Build | **Bottom-Up Incremental** | Every phase ships working code; bugs are bounded; safest for single-maintainer |
-| Input | Full Ink (`<TextInput />`) · Readline hybrid | **Full Ink input** | Only option that anchors input at bottom; eliminates readline/Ink cursor conflict |
+| Input | Full Ink (`<TextInput />`) · Ink pickers + readline REPL | **Ink pickers + readline REPL** | Removes `@clack/prompts` without readline-replacement risk; one-shot mount pattern eliminates stdin conflict |
 
 ---
 
@@ -140,16 +147,17 @@ Requires maintaining two full UI implementations for 4 weeks. The chalk code con
 
 ### Why not Readline hybrid input
 
-`Static` mode does not support a persistent input line anchored at the bottom. Cursor conflicts between readline's history navigation and Ink's redraws surface in real terminals within hours of use.
+The original Option B analysis concluded that `Static` mode cannot anchor an input line at the bottom. This remains true for a persistent `<TextInput />`-based REPL. However, the one-shot mount pattern (`interactive<T>()`) sidesteps the problem entirely: Ink mounts only for the duration of a picker or prompt, then unmounts before readline takes over. The conflict risk is structural only when both systems are persistent and concurrent — which they are not in the shipped implementation.
 
 ---
 
 ## Consequences
 
 **Positive:**
-- Live-updating context bar, streaming output, and animated spinner — the three most-requested UX improvements — become straightforward React state.
-- `src/ui.ts` transitions from a 417-line imperative file to ~15 small, composable, independently testable components.
-- Removes `ora` and `@clack/prompts` (two prompt-fighting dependencies) in favour of a single rendering system.
+- Live-updating context bar, streaming output, and animated spinner are straightforward React state — shipped in Phases 2–3.
+- `src/ui.ts` (417-line imperative file) replaced by ~15 small, composable, independently testable components under `src/ui/components/`.
+- `ora` removed (Phase 2) and `@clack/prompts` removed (Phase 4) — the project now has a single rendering system (Ink + chalk) instead of three competing ones.
+- Phase 4 added three custom Ink components (`SelectPicker`, `TextPrompt`, `ConfirmDialog`) covering all 7 select, 2 text, 1 password, and 2 confirm interactive surfaces with a consistent `CANCEL` sentinel.
 - Opens the door to future UX features: scrollable output history, inline diff rendering, side-by-side layouts — all difficult or impossible with chalk.
 
 **Negative:**
@@ -165,6 +173,6 @@ Requires maintaining two full UI implementations for 4 weeks. The chalk code con
 - [Ink GitHub](https://github.com/vadimdemedes/ink)
 - [Feature doc: Ink TUI Migration](../features/ink-tui-migration.md)
 - [Design spec](../superpowers/specs/2026-10-26-ink-tui-migration-design.md)
-- [`src/ui.ts`](../../src/ui.ts) — current implementation to be replaced
-- [`src/index.ts`](../../src/index.ts) — REPL loop (Phase 3 target)
-- [`src/agent.ts`](../../src/agent.ts) — streaming output (Phase 2 target)
+- [`src/ui/`](../../src/ui/) — Ink component system (replaced `src/ui.ts`)
+- [`src/index.ts`](../../src/index.ts) — REPL loop + startup wizard
+- [`src/agent.ts`](../../src/agent.ts) — streaming output (Phase 2 TurnEmitter)

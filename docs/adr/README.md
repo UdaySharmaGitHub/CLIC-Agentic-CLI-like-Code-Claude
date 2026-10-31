@@ -31,4 +31,4 @@ An Architecture Decision Record (ADR) captures a significant architectural choic
 | [ADR-008](ADR-008-chokidar-workspace-watcher.md) | chokidar Workspace Watcher Injected into System Prompt | Accepted | 2026-10-13 |
 | [ADR-009](ADR-009-ephemeral-no-history-mode.md) | Ephemeral Mode via `src/privacy.ts` Singleton | Accepted | 2026-10-13 |
 | [ADR-010](ADR-010-compact-auto-trigger.md) | `/compact` Auto-Trigger at 80% Context Window | Accepted | 2026-10-13 |
-| [ADR-011](ADR-011-ink-tui-migration.md) | Ink as TUI Renderer (Migration from Chalk) | Proposed | 2026-10-26 |
+| [ADR-011](ADR-011-ink-tui-migration.md) | Ink as TUI Renderer (Migration from Chalk) | Accepted | 2026-10-26 |
