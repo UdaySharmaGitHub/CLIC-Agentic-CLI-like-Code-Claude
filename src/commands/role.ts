@@ -9,7 +9,7 @@
 import chalk from 'chalk';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { select, isCancel } from '@clack/prompts';
+import { selectPrompt, CANCEL } from '../ui/index.js';
 import { loadKnowledgeBase } from '../config.js';
 import { buildSystemPrompt } from '../prompts.js';
 import type { SlashCommand } from './types.js';
@@ -35,12 +35,12 @@ export const command: SlashCommand = {
       return { type: 'continue' };
     }
 
-    const choice = await select({
+    const choice = await selectPrompt({
       message: 'Select a role:',
-      options: roleOptions,
+      items: roleOptions,
     });
 
-    if (isCancel(choice)) {
+    if (choice === CANCEL) {
       console.log(chalk.dim('  Cancelled.'));
       console.log();
       return { type: 'continue' };
@@ -53,7 +53,7 @@ export const command: SlashCommand = {
       return { type: 'update', updates: { kbFile: undefined, systemPrompt: newPrompt } };
     }
 
-    const kbPath = choice as string;
+    const kbPath = choice;
     const kb = await loadKnowledgeBase(kbPath);
     if (!kb) return { type: 'continue' };
 

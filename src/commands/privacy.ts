@@ -14,7 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
-import { select, isCancel } from '@clack/prompts';
+import { selectPrompt, CANCEL } from '../ui/index.js';
 import { setEphemeral, isEphemeral } from '../privacy.js';
 import type { SlashCommand } from './types.js';
 
@@ -58,16 +58,16 @@ export const command: SlashCommand = {
   execute: async () => {
     const current = isEphemeral();
 
-    const choice = await select({
+    const choice = await selectPrompt({
       message: `Privacy mode (current: ${current ? 'ON' : 'OFF'}):`,
       initialValue: current ? 'on' : 'off',
-      options: [
+      items: [
         { value: 'off', label: 'Off — normal', hint: 'History, token graph & session index are saved to disk' },
         { value: 'on', label: 'On — ephemeral', hint: 'Nothing written to disk — for sensitive/throwaway work' },
       ],
     });
 
-    if (isCancel(choice)) {
+    if (choice === CANCEL) {
       console.log(chalk.dim('  Cancelled.'));
       console.log();
       return { type: 'continue' };

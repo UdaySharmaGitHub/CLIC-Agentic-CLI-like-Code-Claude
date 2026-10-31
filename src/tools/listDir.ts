@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printRejected, printDimOutput, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
 
@@ -35,11 +35,11 @@ export async function execute(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const dirPath = resolvePath(input.path || '.');
-  printToolHeader('list_directory', `Listing ${dirPath}`);
+  await printToolHeader('list_directory', `Listing ${dirPath}`);
 
   if (!await confirm(`Approve listing '${dirPath}'?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected the directory listing.', isError: true };
   }
 
@@ -49,16 +49,16 @@ export async function execute(
     const lines = output.split('\n');
 
     console.log(`  ${chalk.green('  ── Directory Listing ──────────────────────────────')}`);
-    printDimOutput(lines, 60);
+    await printDimOutput(lines, 60);
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────────')}`);
     console.log();
-    printToolSuccess('Listed successfully.');
-    printSeparator();
+    await printToolSuccess('Listed successfully.');
+    await printSeparator();
     return { output: `[Directory listing of '${dirPath}']:\n${output}`, isError: false };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`Directory not found: ${dirPath}`);
-    printSeparator();
+    await printToolError(`Directory not found: ${dirPath}`);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }

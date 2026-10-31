@@ -8,8 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
-import { select, isCancel } from '@clack/prompts';
-import ora from 'ora';
+import { selectPrompt, CANCEL } from '../ui/index.js';
 import { fetchAvailableModelOptions } from '../tools/listModelfromOpenAI.js';
 import type { SlashCommand } from './types.js';
 
@@ -26,14 +25,14 @@ export const command: SlashCommand = {
       return { type: 'update', updates: { model: newModel } };
     }
 
-    const spinner = ora({ text: chalk.dim('  Fetching available models...'), color: 'cyan' }).start();
+    process.stdout.write(chalk.dim('  ⏳ Fetching available models...'));
     let modelOptions: Array<{ value: string; label: string; hint: string }> = [];
 
     try {
       modelOptions = await fetchAvailableModelOptions();
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
     } catch (err) {
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
       console.log(chalk.yellow(`  ⚠️  Could not fetch models: ${err instanceof Error ? err.message : String(err)}`));
       console.log(chalk.dim(`  Current model: ${ctx.model}`));
       console.log();
@@ -46,18 +45,18 @@ export const command: SlashCommand = {
       return { type: 'continue' };
     }
 
-    const choice = await select({
+    const choice = await selectPrompt({
       message: `Select a model (current: ${ctx.model}):`,
-      options: modelOptions,
+      items: modelOptions,
     });
 
-    if (isCancel(choice)) {
+    if (choice === CANCEL) {
       console.log(chalk.dim('  Cancelled.'));
       console.log();
       return { type: 'continue' };
     }
 
-    const newModel = choice as string;
+    const newModel = choice;
     console.log(chalk.green(`  ✅ Model switched: ${chalk.dim(ctx.model)} → ${chalk.white(newModel)}`));
     console.log();
     return { type: 'update', updates: { model: newModel } };

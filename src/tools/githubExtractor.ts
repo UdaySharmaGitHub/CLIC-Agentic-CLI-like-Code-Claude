@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printRejected, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 
 // Adding the zod schema for input validation
@@ -140,10 +140,10 @@ async function executeProfile(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const { username } = input;
-  printToolHeader('github › profile', `User: ${username}`);
+  await printToolHeader('github › profile', `User: ${username}`);
 
   if (!await confirm(`Fetch GitHub profile & streak for '${username}'?`)) {
-    printRejected(); printSeparator();
+    await printRejected(); await printSeparator();
     return { output: 'User rejected.', isError: true };
   }
 
@@ -155,14 +155,14 @@ async function executeProfile(
 
     if (profileRes.status === 'rejected') {
       const msg = profileRes.reason instanceof Error ? profileRes.reason.message : String(profileRes.reason);
-      printToolError(msg); printSeparator();
+      await printToolError(msg); await printSeparator();
       return { output: `ERROR — ${msg}`, isError: true };
     }
 
     const { data: p, status } = profileRes.value;
     if (status === 404) {
       const msg = `User '${username}' not found.`;
-      printToolError(msg); printSeparator();
+      await printToolError(msg); await printSeparator();
       return { output: `ERROR — ${msg}`, isError: true };
     }
 
@@ -202,8 +202,8 @@ async function executeProfile(
     for (const line of streakLines) console.log(`    ${chalk.dim(line)}`);
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────')}`);
     console.log();
-    printToolSuccess(`Profile + streak fetched for @${username}.`);
-    printSeparator();
+    await printToolSuccess(`Profile + streak fetched for @${username}.`);
+    await printSeparator();
 
     return {
       output: [`[GitHub profile for @${username}]:`, ...profileLines, '', '[Activity Streak (~90 days):]', ...streakLines].join('\n'),
@@ -211,7 +211,7 @@ async function executeProfile(
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg); printSeparator();
+    await printToolError(msg); await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }
@@ -224,10 +224,10 @@ async function executeRepos(
 ): Promise<ToolResult> {
   const { username } = input;
   const limit = Math.min(parseInt(input.limit ?? '10', 10) || 10, 30);
-  printToolHeader('github › repos', `${username} — top ${limit} repos`);
+  await printToolHeader('github › repos', `${username} — top ${limit} repos`);
 
   if (!await confirm(`Fetch public repos for '${username}'?`)) {
-    printRejected(); printSeparator();
+    await printRejected(); await printSeparator();
     return { output: 'User rejected.', isError: true };
   }
 
@@ -237,14 +237,14 @@ async function executeRepos(
 
     if (status === 404) {
       const msg = `User '${username}' not found.`;
-      printToolError(msg); printSeparator();
+      await printToolError(msg); await printSeparator();
       return { output: `ERROR — ${msg}`, isError: true };
     }
 
     const own = repos.filter(r => !r.fork);
     if (own.length === 0) {
-      printToolSuccess(`No public repos found for @${username}.`);
-      printSeparator();
+      await printToolSuccess(`No public repos found for @${username}.`);
+      await printSeparator();
       return { output: `@${username} has no public repositories.`, isError: false };
     }
 
@@ -265,8 +265,8 @@ async function executeRepos(
 
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────')}`);
     console.log();
-    printToolSuccess(`Fetched ${own.length} repos for @${username}.`);
-    printSeparator();
+    await printToolSuccess(`Fetched ${own.length} repos for @${username}.`);
+    await printSeparator();
 
     return {
       output: `[Public repos for @${username} (${own.length} shown)]:\n\n${lines.join('\n\n')}`,
@@ -274,7 +274,7 @@ async function executeRepos(
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(msg); printSeparator();
+    await printToolError(msg); await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }

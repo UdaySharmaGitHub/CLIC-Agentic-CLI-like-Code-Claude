@@ -16,7 +16,7 @@
   },
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsup src/index.ts --format esm --clean",
+    "build": "tsup",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx test/index.ts",
@@ -28,17 +28,19 @@
     "test:privacy": "tsx test/privacy.test.ts",
     "test:export": "tsx test/export.test.ts",
     "test:terminal": "tsx test/terminal.test.ts",
-    "test:web-search": "tsx test/web-search.test.ts"
+    "test:web-search": "tsx test/web-search.test.ts",
+    "test:ui": "tsx test/ui.test.ts"
   },
   "engines": {
     "node": ">=20",
     "pnpm": ">=10"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["node-pty"]
+    "onlyBuiltDependencies": [
+      "node-pty"
+    ]
   },
   "dependencies": {
-    "@clack/prompts": "^0.9.1",
     "chalk": "^6.0.1",
     "chokidar": "^5.0.0",
     "commander": "^15.0.0",
@@ -46,13 +48,16 @@
     "dotenv": "^18.0.8",
     "execa": "^10.1.0",
     "fast-glob": "^3.3.3",
+    "ink": "^8.0.0",
+    "ink-spinner": "^5.0.0",
     "node-pty": "^1.1.0",
     "openai": "^7.34.0",
-    "ora": "^9.4.1",
+    "react": "^19.3.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

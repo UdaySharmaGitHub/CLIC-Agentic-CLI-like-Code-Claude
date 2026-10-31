@@ -8,7 +8,7 @@ import { isPathSafe } from '../safety.js';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printToolBlocked, printRejected, printDimOutput, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { resolvePath } from './helpers.js';
 import { getStalenessNote, markRead } from '../watcher.js';
@@ -37,18 +37,18 @@ export async function execute(
   confirm: ConfirmFn,
 ): Promise<ToolResult> {
   const filepath = resolvePath(input.filepath);
-  printToolHeader('read_file', `Reading ${filepath}`);
+  await printToolHeader('read_file', `Reading ${filepath}`);
 
   const safety = isPathSafe(filepath);
   if (!safety.safe) {
-    printToolBlocked(safety.reason!);
-    printSeparator();
+    await printToolBlocked(safety.reason!);
+    await printSeparator();
     return { output: `ERROR — protected file: ${filepath}`, isError: true };
   }
 
   if (!await confirm(`Approve reading '${filepath}'?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected the file read.', isError: true };
   }
 
@@ -62,14 +62,14 @@ export async function execute(
     console.log(`  ${chalk.dim(`  Lines: ${lines.length}  |  Size: ${stat.size} bytes`)}`);
     console.log();
     console.log(`  ${chalk.green('  ── File Contents ──────────────────────────────')}`);
-    printDimOutput(displayContent.split('\n'), 80);
+    await printDimOutput(displayContent.split('\n'), 80);
     if (lines.length > 80) {
       console.log(`  ${chalk.dim(`  ... (showing first 80 of ${lines.length} lines)`)}`);
     }
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────')}`);
     console.log();
-    printToolSuccess(`File read successfully (${lines.length} lines).`);
-    printSeparator();
+    await printToolSuccess(`File read successfully (${lines.length} lines).`);
+    await printSeparator();
 
     const suffix = truncated ? '\n[... file truncated at 12000 chars ...]' : '';
     const staleNote = getStalenessNote(filepath);
@@ -81,8 +81,8 @@ export async function execute(
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    printToolError(`File not found or unreadable: ${filepath}`);
-    printSeparator();
+    await printToolError(`File not found or unreadable: ${filepath}`);
+    await printSeparator();
     return { output: `ERROR — ${msg}`, isError: true };
   }
 }

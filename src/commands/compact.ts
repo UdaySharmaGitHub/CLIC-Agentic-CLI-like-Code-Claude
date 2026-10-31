@@ -7,7 +7,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
-import ora from 'ora';
 import { getMessages, clearMessages, pushMessage } from '../memory.js';
 import type { SlashCommand } from './types.js';
 import type { ChatMessage } from '../memory.js';
@@ -27,7 +26,7 @@ export async function runCompact(
 
   const tokensBefore = estimateTokens(msgs);
 
-  const spinner = ora({ text: chalk.dim('  Compacting...'), color: 'cyan' }).start();
+  process.stdout.write(chalk.dim('  ⏳ Compacting...'));
 
   try {
     const historyText = msgs
@@ -54,13 +53,13 @@ export async function runCompact(
       content: 'Understood. I have the context from our previous conversation. How can I continue helping you?',
     });
 
-    spinner.stop();
+    process.stdout.write('\r' + ' '.repeat(30) + '\r');
     const tokensAfter = estimateTokens(getMessages());
     const freed = Math.max(0, tokensBefore - tokensAfter);
     const modeLabel = mode === 'auto' ? 'Auto' : 'Manual';
     console.log(chalk.green(`  ✅ Chat Compacted · ${modeLabel} · ${before} → 2 messages · ${chalk.bold(freed.toLocaleString())} tokens freed`));
   } catch (err) {
-    spinner.stop();
+    process.stdout.write('\r' + ' '.repeat(30) + '\r');
     console.log(chalk.red(`  ❌ Auto-compact failed: ${err instanceof Error ? err.message : String(err)}`));
   }
   console.log();

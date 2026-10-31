@@ -5,14 +5,14 @@
 //  Usage: /help
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { printHelp } from "../ui.js";
+import { printHelp } from "../ui/index.js";
 import type { SlashCommand } from "./types.js";
 
 export const command:SlashCommand={
     name:'/help',
     description:'show capabilites and Commands',
     execute:async()=>{
-        printHelp();
+        await printHelp();
         return {type:'continue'};
     },
 };

@@ -11,11 +11,11 @@
 
 import type OpenAI from 'openai';
 import chalk from 'chalk';
-import ora from 'ora';
 import { streamMessage } from './openai.js';
 import { executeTool, type ConfirmFn } from './tools/index.js';
 import type { ChatMessage } from './memory.js';
-import { printStepHeader, actionLabel } from './ui.js';
+import { printStepHeader, actionLabel, startSpinner, printContextBar } from './ui/index.js';
+import { getContextLimit, CONTEXT_GUARD_THRESHOLD } from './config.js';
 import { addNode, addEdge } from './knowledgeGraph.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -75,8 +75,12 @@ export async function runAgentTurn(
 ): Promise<{ promptTokens: number }> {
   let steps = 0;
 
-  // Accumulated token usage and tool names across all steps in this turn
+  // Accumulated token usage and tool names across all steps in this turn.
+  // cumulativeUsage = total billed tokens (for the Knowledge Graph / cost).
+  // currentContextTokens = size of the MOST RECENT prompt (for the context bar
+  // and auto-compact guard) — context fill is the latest prompt, not a sum.
   const cumulativeUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  let currentContextTokens = 0;
   const usedToolNames = new Set<string>();
 
   while (steps < options.maxSteps) {
@@ -85,31 +89,33 @@ export async function runAgentTurn(
     // ── Check for abort before each step ────────────────────────────────────
     if (options.signal?.aborted) {
       console.log(chalk.yellow('\n  ⚡ Interrupted.'));
-        return { promptTokens: cumulativeUsage.promptTokens };
+        return { promptTokens: currentContextTokens };
     }
 
     if (steps > 1) {
-      printStepHeader(steps, options.maxSteps);
+      await printStepHeader(steps, options.maxSteps);
     }
 
     // ── Call LLM with streaming ──────────────────────────────────────────────
-    const spinner = ora({ text: '  Thinking...', indent: 2 }).start();
+    // Ink spinner during "thinking"; torn down the moment the first token
+    // streams, after which the response scrolls as normal log output.
+    const spinner = startSpinner();
 
     let response;
     try {
       let textStarted = false;
-      response = await streamMessage(client, options.model, systemPrompt, messages, (text) => {
+      response = await streamMessage(client, options.model, systemPrompt, messages, (chunk) => {
         if (!textStarted) {
-          spinner.stop();
           textStarted = true;
+          spinner.stop();
           console.log();
           console.log(chalk.cyan.bold('  🤖 Agent:'));
           console.log();
         }
-        process.stdout.write(text);
+        process.stdout.write(chunk);
       }, options.signal);
 
-      if (!textStarted) spinner.stop();
+      spinner.stop();
       if (textStarted) {
         console.log();
         console.log();
@@ -118,12 +124,12 @@ export async function runAgentTurn(
       spinner.stop();
       if (options.signal?.aborted) {
         console.log(chalk.yellow('\n  ⚡ Interrupted.'));
-        return { promptTokens: cumulativeUsage.promptTokens };
+        return { promptTokens: currentContextTokens };
       }
       const msg = err instanceof Error ? err.message : String(err);
       console.log();
       console.log(chalk.red(`  ❌ API Error: ${msg}`));
-      return { promptTokens: cumulativeUsage.promptTokens };
+      return { promptTokens: currentContextTokens };
     }
 
     // ── Debug: show raw response ─────────────────────────────────────────────
@@ -142,12 +148,24 @@ export async function runAgentTurn(
     };
     messages.push(assistantMsg);
 
-    // ── Accumulate token usage for KG ────────────────────────────────────────
+    // ── Accumulate token usage for KG (cumulative = total billed) ────────────
     if (response.usage) {
       cumulativeUsage.promptTokens     += response.usage.promptTokens;
       cumulativeUsage.completionTokens += response.usage.completionTokens;
       cumulativeUsage.totalTokens      += response.usage.totalTokens;
     }
+
+    // ── Per-step context bar ─────────────────────────────────────────────────
+    // Context occupancy = size of the prompt sent this step (actual usage when
+    // the API returns it, else a ~4-chars/token estimate of the conversation).
+    // Printed once per step as normal scrolling output — no live region.
+    currentContextTokens = (response.usage?.promptTokens ?? 0) > 0
+      ? response.usage!.promptTokens
+      : Math.ceil(
+          ((systemPrompt?.length ?? 0) +
+            messages.reduce((sum, m) => sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0)) / 4,
+        );
+    await printContextBar(currentContextTokens, getContextLimit(), CONTEXT_GUARD_THRESHOLD);
 
     // ── If no tool calls, the task is complete ───────────────────────────────
     if (response.toolCalls.length === 0) {
@@ -277,5 +295,5 @@ export async function runAgentTurn(
     }
   }
 
-  return { promptTokens: cumulativeUsage.promptTokens };
+  return { promptTokens: currentContextTokens };
 }

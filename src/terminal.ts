@@ -116,6 +116,10 @@ interface TerminalEntry {
   cwd: string;
   createdAt: string;
   lastCommand?: string;
+  // Set by startBackground; cleared by waitFor when the sentinel is detected.
+  // Allows waitFor to resolve the instant the process exits instead of waiting
+  // out the quiet-detection window.
+  sentinelToken?: string;
   // Per-terminal mutex: always resolves, never rejects.
   // Callers chain onto this to serialise exec() calls on the same terminal.
   queue: Promise<unknown>;
@@ -148,8 +152,42 @@ function processOutput(raw: string, command: string, token: string): string {
     .trim();
 }
 
-// ── TerminalManager ───────────────────────────────────────────────────────────
+/**
+ * Clean buffered PTY output for display (used by read() and waitFor()).
+ * Unlike processOutput() — which is scoped to a single exec() with a known
+ * command + sentinel token — this cleans an arbitrary span of the ring buffer:
+ *  - strip ANSI/VT escapes
+ *  - apply backspaces (the shell's line-editor / autosuggestion redraw)
+ *  - drop right-pad whitespace, sentinel lines, printf-sentinel echoes, and
+ *    oh-my-zsh / bare shell prompt lines (which carry the echoed command)
+ */
+export function cleanBuffer(raw: string, command?: string): string {
+  let s = stripAnsi(raw);
+  // Resolve backspaces: each "<char><BS>" pair cancels out. Bounded passes
+  // handle runs like "ab\b\b"; a final sweep removes any stray leading BS.
+  for (let i = 0; i < 8 && s.includes('\x08'); i++) s = s.replace(/[^\x08]\x08/g, '');
+  s = s.replace(/\x08/g, '');
+  const firstChunk = command?.trimStart().slice(0, 18);
+  return s
+    .split('\n')
+    .map(l => l.replace(/[ \t]+$/, ''))
+    .filter(l => {
+      const t = l.trim();
+      if (!t) return false;
+      if (/__CLIC_END__[0-9a-fA-F]+__-?\d+__/.test(t)) return false;
+      if (t.startsWith("printf '__CLIC_END__")) return false;
+      // Echoed command line (PTY echoes typed input; zsh may append a `>`).
+      if (firstChunk && t.replace(/>+$/, '').trimEnd().startsWith(firstChunk)) return false;
+      // oh-my-zsh (➜ / ➜ with git status) and bare prompts — these lines also
+      // carry the echoed command, so dropping them removes the echo too.
+      if (t.includes('➜') || t.startsWith('%') || /^[$#]\s/.test(t) || t === '%' || t === '$' || t === '#') return false;
+      return true;
+    })
+    .join('\n')
+    .trim();
+}
 
+// ── TerminalManager ───────────────────────────────────────────────────────────
 class TerminalManager {
   private readonly terminals = new Map<string, TerminalEntry>();
   private readonly spawnLocks = new Map<string, Promise<void>>();  // dedup concurrent spawns
@@ -203,6 +241,10 @@ class TerminalManager {
     await new Promise<void>(r => setTimeout(r, 800));
     // Flush welcome noise (motd, .zshrc output, etc.)
     await this._execRaw(entry, name, 'true', 5_000).catch(() => { });
+    // Discard the flush noise (welcome banner, the `true` echo, its sentinel,
+    // trailing prompt redraw) so the terminal presents a clean, empty buffer.
+    await new Promise<void>(r => setTimeout(r, 50));
+    entry.buffer.clear();
   }
 
   /** Destroy a terminal and remove it from the pool. */
@@ -244,7 +286,13 @@ class TerminalManager {
     const entry = this.terminals.get(name)!;
     entry.status = 'background';
     entry.lastCommand = command;
-    entry.pty.write(`${command}\n`);
+    // Generate a per-command token so waitFor knows exactly when THIS command
+    // exits, not a leftover sentinel from a previous exec.
+    const token = crypto.randomUUID().replace(/-/g, '');
+    entry.sentinelToken = token;
+    // Single compound line: the printf always runs regardless of exit code,
+    // capturing $? correctly without polluting stdin with a second write.
+    entry.pty.write(`${command}; printf '__CLIC_END__${token}__%d__\\n' "$?"\n`);
   }
 
   /** Send raw stdin to a running or background process (e.g. answer a prompt). */
@@ -256,56 +304,90 @@ class TerminalManager {
 
   // ── Public: inspection ──────────────────────────────────────────────────────
 
-  /** Return the last `lines` lines of buffered output (ANSI-stripped). */
+  /** Return the last `lines` lines of buffered output (cleaned for display). */
   read(name: string, lines = 50): string {
     const entry = this.terminals.get(name);
     if (!entry) throw new Error(`Terminal "${name}" not found.`);
-    return stripAnsi(entry.buffer.tail(lines));
+    return cleanBuffer(entry.buffer.tail(lines), entry.lastCommand);
   }
 
   /**
    * Block until a terminal finishes or a pattern appears in its output.
    *  - If `pattern` is given: resolve when the buffer matches it.
    *  - Otherwise: resolve when output goes "quiet" (no new bytes for quietMs).
+   *
+   * Quiet detection ignores the command echo and prompt noise (it measures the
+   * CLEANED buffer), and will not settle until *real* output has appeared — so a
+   * command that is silent during startup (pnpm build/test, a sleep, a slow
+   * fetch) is no longer mistaken for "already finished." A command that
+   * legitimately prints nothing still resolves after `noOutputGraceMs`.
    * Always resolves; never hangs past timeoutMs.
    */
   async waitFor(
     name: string,
     opts: { pattern?: string; timeoutMs?: number; quietMs?: number } = {},
-  ): Promise<{ matched: boolean; timedOut: boolean; output: string }> {
+  ): Promise<{ matched: boolean; timedOut: boolean; output: string; exitCode?: number | null }> {
     const entry = this.terminals.get(name);
     if (!entry) throw new Error(`Terminal "${name}" not found.`);
 
     const timeoutMs = opts.timeoutMs ?? 30_000;
-    const quietMs = opts.quietMs ?? 1_000;
+    const quietMs = opts.quietMs ?? 1_200;
     const re = opts.pattern ? new RegExp(opts.pattern) : null;
-    const deadline = Date.now() + timeoutMs;
+    const noOutputGraceMs = Math.min(4_000, timeoutMs);
+    const startedAt = Date.now();
+    const deadline = startedAt + timeoutMs;
 
     let lastLen = -1;
     let quietSince = Date.now();
 
     while (Date.now() < deadline) {
-      const buf = stripAnsi(entry.buffer.tail(500));
+      const rawTail = entry.buffer.tail(1000);
+      const clean = cleanBuffer(rawTail, entry.lastCommand);
 
-      // Condition 1: pattern matched
-      if (re && re.test(buf)) {
-        return { matched: true, timedOut: false, output: buf };
+      // Condition 0: sentinel-based true completion (set by startBackground).
+      // Resolves the instant the process exits — no quiet-window tax.
+      if (entry.sentinelToken) {
+        const sentinelRe = new RegExp(`__CLIC_END__${entry.sentinelToken}__(\\d+)__`);
+        const m = sentinelRe.exec(stripAnsi(rawTail));
+        if (m) {
+          const exitCode = parseInt(m[1], 10);
+          entry.sentinelToken = undefined;
+          entry.status = 'idle';
+          // If caller also specified a pattern, report whether it matched in the final output.
+          const patternMatched = re ? re.test(clean) : false;
+          return { matched: patternMatched, timedOut: false, output: clean, exitCode };
+        }
       }
 
-      // Condition 2: quiet detection (only when no pattern given)
+      // Condition 1: pattern matched (test against ANSI-stripped raw so that
+      // prompt/echo text the caller is waiting on is still visible).
+      if (re && re.test(stripAnsi(rawTail))) {
+        // Clear any pending sentinel token so it can't trip a subsequent waitFor
+        // call on the same terminal (the command may have already exited by then).
+        entry.sentinelToken = undefined;
+        return { matched: true, timedOut: false, output: clean };
+      }
+
+      // Condition 2: quiet detection (only when no pattern given). Measure the
+      // CLEANED buffer so prompt redraws and the echoed command don't count.
       if (!re) {
-        if (buf.length !== lastLen) {
-          lastLen = buf.length;
-          quietSince = Date.now();          // output still flowing → reset
-        } else if (Date.now() - quietSince >= quietMs && entry.status !== 'running') {
-          return { matched: false, timedOut: false, output: buf };
+        if (clean.length !== lastLen) {
+          lastLen = clean.length;
+          quietSince = Date.now();            // real output still flowing → reset
+        } else if (entry.status !== 'running' && Date.now() - quietSince >= quietMs) {
+          const sawOutput = clean.length > 0;
+          // Settle once real output appeared and went quiet, or after a grace
+          // period for commands that genuinely produce no output.
+          if (sawOutput || Date.now() - startedAt >= noOutputGraceMs) {
+            return { matched: false, timedOut: false, output: clean };
+          }
         }
       }
 
       await new Promise(r => setTimeout(r, 200));  // poll every 200ms
     }
 
-    return { matched: false, timedOut: true, output: stripAnsi(entry.buffer.tail(500)) };
+    return { matched: false, timedOut: true, output: cleanBuffer(entry.buffer.tail(1000), entry.lastCommand) };
   }
 
 
@@ -369,7 +451,9 @@ class TerminalManager {
       const token = crypto.randomUUID().replace(/-/g, '');
       const pattern = new RegExp(`__CLIC_END__${token}__(\\d+)__`);
 
-      entry.status = name === 'true' ? 'idle' : 'running';
+      // 'true' is the spawn-flush command (see spawn); don't treat it as a
+      // user command that flips the terminal to "running".
+      entry.status = command === 'true' ? entry.status : 'running';
       entry.lastCommand = command;
 
       let buf = '';

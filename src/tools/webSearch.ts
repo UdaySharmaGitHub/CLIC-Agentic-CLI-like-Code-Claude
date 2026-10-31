@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 import {
   printToolHeader, printToolSuccess, printToolError,
   printRejected, printDimOutput, printSeparator,
-} from '../ui.js';
+} from '../ui/index.js';
 import type { ConfirmFn, ToolResult, ToolDefinition } from './types.js';
 import { withRetry } from '../retry.js';
 import { z } from 'zod';
@@ -46,11 +46,11 @@ export async function execute(
     Number(match) < currentYear ? String(currentYear) : match,
   );
 
-  printToolHeader('web_search', `Query: ${freshQuery}`);
+  await printToolHeader('web_search', `Query: ${freshQuery}`);
 
   if (!await confirm(`Approve web search for '${freshQuery}'?`)) {
-    printRejected();
-    printSeparator();
+    await printRejected();
+    await printSeparator();
     return { output: 'User rejected the web search.', isError: true };
   }
 
@@ -82,14 +82,14 @@ export async function execute(
     const citations: string[] = result.citations ?? [];
 
     if (!text) {
-      printToolError('Web search returned no results.');
-      printSeparator();
+      await printToolError('Web search returned no results.');
+      await printSeparator();
       return { output: 'ERROR — web search returned no results.', isError: true };
     }
 
     const lines = text.split('\n');
     console.log(`  ${chalk.green('  ── Search Results ──────────────────────────────')}`);
-    printDimOutput(lines, 60);
+    await printDimOutput(lines, 60);
 
     if (citations.length > 0) {
       console.log(`  ${chalk.green('  ── Sources ─────────────────────────────────────')}`);
@@ -100,8 +100,8 @@ export async function execute(
 
     console.log(`  ${chalk.green('  ────────────────────────────────────────────────')}`);
     console.log();
-    printToolSuccess('Web search completed.');
-    printSeparator();
+    await printToolSuccess('Web search completed.');
+    await printSeparator();
 
     const citationsBlock = citations.length > 0
       ? `\n\nSources:\n${citations.map(url => `- ${url}`).join('\n')}`
@@ -125,8 +125,8 @@ export async function execute(
         ? 'Web search rate-limited. Retry in a moment.'
         : `Web search failed: ${msg}`;
 
-    printToolError(userMsg);
-    printSeparator();
+    await printToolError(userMsg);
+    await printSeparator();
     return { output: `ERROR — ${userMsg}`, isError: true };
   }
 }

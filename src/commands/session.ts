@@ -14,9 +14,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import chalk from 'chalk';
-import { text, confirm, select, isCancel } from '@clack/prompts';
+import { selectPrompt, textPrompt, confirmPrompt, CANCEL } from '../ui/index.js';
 import { getSessionTokenSummary } from '../knowledgeGraph.js';
-import { sessionNameBadge } from '../ui.js';
+import { sessionNameBadge } from '../ui/index.js';
 import {
   listSessions,
   getActive,
@@ -37,12 +37,12 @@ function switchTo(name: string): CommandAction {
 async function handleNew(name: string | undefined): Promise<CommandAction> {
   let sessionName = name;
   if (!sessionName) {
-    const input = await text({
+    const input = await textPrompt({
       message: 'New session name:',
       placeholder: 'e.g. debug-prod',
       validate: (v) => (v && /^[A-Za-z0-9_-]+$/.test(v) ? undefined : 'Use letters, digits, - and _ only'),
     });
-    if (isCancel(input)) {
+    if (input === CANCEL) {
       console.log(chalk.dim('  Cancelled.'));
       console.log();
       return { type: 'continue' };
@@ -78,9 +78,9 @@ async function handleSwitch(name: string | undefined, active: string): Promise<C
       console.log();
       return { type: 'continue' };
     }
-    const choice = await select({
+    const choice = await selectPrompt({
       message: `Switch to session (current: ${active}):`,
-      options: others.map(s => {
+      items: others.map(s => {
         const summary = getSessionTokenSummary(sessionNodeId(s.name));
         return {
           value: s.name,
@@ -89,12 +89,12 @@ async function handleSwitch(name: string | undefined, active: string): Promise<C
         };
       }),
     });
-    if (isCancel(choice)) {
+    if (choice === CANCEL) {
       console.log(chalk.dim('  Cancelled.'));
       console.log();
       return { type: 'continue' };
     }
-    target = choice as string;
+    target = choice;
   }
 
   if (target === active) {
@@ -116,11 +116,11 @@ async function handleSwitch(name: string | undefined, active: string): Promise<C
 async function handleRename(name: string | undefined, active: string): Promise<CommandAction> {
   let newName = name;
   if (!newName) {
-    const input = await text({
+    const input = await textPrompt({
       message: `Rename session "${active}" to:`,
       validate: (v) => (v && /^[A-Za-z0-9_-]+$/.test(v) ? undefined : 'Use letters, digits, - and _ only'),
     });
-    if (isCancel(input)) {
+    if (input === CANCEL) {
       console.log(chalk.dim('  Cancelled.'));
       console.log();
       return { type: 'continue' };
@@ -173,9 +173,9 @@ async function handleDelete(name: string | undefined, active: string): Promise<C
       console.log();
       return { type: 'continue' };
     }
-    const choice = await select({
+    const choice = await selectPrompt({
       message: 'Select session to delete:',
-      options: deletable.map(s => {
+      items: deletable.map(s => {
         const summary = getSessionTokenSummary(sessionNodeId(s.name));
         return {
           value: s.name,
@@ -184,12 +184,12 @@ async function handleDelete(name: string | undefined, active: string): Promise<C
         };
       }),
     });
-    if (isCancel(choice)) {
+    if (choice === CANCEL) {
       console.log(chalk.dim('  Cancelled.'));
       console.log();
       return { type: 'continue' };
     }
-    target = choice as string;
+    target = choice;
   }
 
   if (target === active) {
@@ -203,8 +203,8 @@ async function handleDelete(name: string | undefined, active: string): Promise<C
     return { type: 'continue' };
   }
 
-  const ok = await confirm({ message: `Delete session "${target}" and its history? This cannot be undone.` });
-  if (isCancel(ok) || !ok) {
+  const ok = await confirmPrompt({ message: `Delete session "${target}" and its history? This cannot be undone.` });
+  if (!ok) {
     console.log(chalk.dim('  Cancelled.'));
     console.log();
     return { type: 'continue' };

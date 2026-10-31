@@ -10,8 +10,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'node:readline/promises';
-import { intro, select, password, isCancel, outro } from '@clack/prompts';
-import { printBanner, printSeparator, promptPrintSeperator, printContextBar, sessionNameBadge } from './ui.js';
+import { printBanner, printSeparator, promptPrintSeperator, sessionNameBadge, selectPrompt, textPrompt, confirmPrompt, CANCEL } from './ui/index.js';
 import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
@@ -36,7 +35,6 @@ import type { ConfirmFn } from './tools/index.js';
 import { fetchAvailableModelOptions } from './tools/listModelfromOpenAI.js';
 // Commands
 import { executeCommand, isSlashedCommand, slashCompleter, type CommandContext } from './commands/index.js';
-import ora from 'ora';
 // Pricing for the AI Models
 import { loadPricing } from './pricing.js';
 // Auto Context Window Guard + Auto-Compact
@@ -95,17 +93,23 @@ async function main(prompt: string | undefined, opts: {
   // ── Banner ────────────────────────────────────────────────────────────────
   await printBanner();
 
-  // ── Setup wizard with @clack/prompts ──────────────────────────────────────
-  intro(chalk.cyan.bold(' CLIC Setup '));
+  // ── Setup wizard ──────────────────────────────────────────────────────────
+  console.log(chalk.cyan.bold('\n  CLIC Setup'));
 
   // API Key check
   let apiKey = process.env.API_KEY || '';
   if (!apiKey) {
-    const keyInput = await password({
+    if (!process.stdout.isTTY) {
+      console.log(chalk.red('  ❌ No API_KEY in environment and no interactive terminal to prompt for one.'));
+      console.log(chalk.dim('     Set API_KEY in your environment or .env and retry.'));
+      process.exit(1);
+    }
+    const keyInput = await textPrompt({
       message: 'OpenAI API Key:',
+      mask: '*',
       validate: (val) => (val.length < 5 ? 'Please enter a valid API key' : undefined),
     });
-    if (isCancel(keyInput)) {
+    if (keyInput === CANCEL) {
       console.log(chalk.red('  Cancelled.'));
       process.exit(0);
     }
@@ -127,28 +131,28 @@ async function main(prompt: string | undefined, opts: {
   // ── Model selection — fetch live models from the API ──────────────────────
   // Skipped when --model flag is explicitly passed.
   if (!opts.model) {
-    const spinner = ora({ text: chalk.dim('  Fetching available models...'), color: 'cyan' }).start();
+    process.stdout.write(chalk.dim('  ⏳ Fetching available models...'));
     try {
       const modelOptions = await fetchAvailableModelOptions();
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
 
       if (modelOptions.length > 0) {
-        const modelChoice = await select({
-          message: 'Select the LLM model to use (↑ ↓ to navigate, Enter to confirm):',
-          options: modelOptions,
+        const modelChoice = await selectPrompt({
+          message: 'Select the LLM model to use:',
+          items: modelOptions,
         });
 
-        if (isCancel(modelChoice)) {
+        if (modelChoice === CANCEL) {
           console.log(chalk.red('  Cancelled.'));
           process.exit(0);
         }
 
-        model = modelChoice as string;
+        model = modelChoice;
       } else {
         console.log(chalk.yellow(`  ⚠️  No models found. Using default: ${model}`));
       }
     } catch (err) {
-      spinner.stop();
+      process.stdout.write('\r' + ' '.repeat(40) + '\r');
       const errMsg = err instanceof Error ? err.message : String(err);
       console.log(chalk.yellow(`  ⚠️  Could not fetch models (${errMsg}). Using: ${model}`));
     }
@@ -180,17 +184,17 @@ async function main(prompt: string | undefined, opts: {
       // folder not found — no built-in roles to list
     }
 
-    const roleChoice = await select({
-      message: 'Select a role (↑ ↓ to navigate, Enter to confirm):',
-      options: roleOptions,
+    const roleChoice = await selectPrompt({
+      message: 'Select a role:',
+      items: roleOptions,
     });
 
-    if (isCancel(roleChoice)) {
+    if (roleChoice === CANCEL) {
       console.log(chalk.red('  Cancelled.'));
       process.exit(0);
     }
 
-    kbFile = roleChoice === '__none__' ? undefined : (roleChoice as string);
+    kbFile = roleChoice === '__none__' ? undefined : roleChoice;
   }
 
   if (kbFile) {
@@ -205,7 +209,7 @@ async function main(prompt: string | undefined, opts: {
     console.log(chalk.yellow('  ⚡ No role file provided. Running as a generic assistant.'));
   }
 
-  outro(chalk.green(' Setup complete '));
+  console.log(chalk.green('\n  ✅ Setup complete\n'));
 
   // ── Workspace file watcher (always-on; --no-watch to disable) ─────────────
   if (opts.watch !== false) {
@@ -260,23 +264,15 @@ async function main(prompt: string | undefined, opts: {
     console.log(chalk.yellow.bold('  ⚠️  YOLO mode: All actions will be auto-approved!'));
   }
   console.log();
-  printSeparator();
+  await printSeparator();
   console.log(chalk.bold("  🚀 Agent ready! Type your request. (type '/help' for tips)"));
-  printSeparator();
+  await printSeparator();
   console.log();
 
   // ── Create confirm function ───────────────────────────────────────────────
-  const createSingleTurnConfirmFn = (singleRl: readline.Interface): ConfirmFn => {
+  const createSingleTurnConfirmFn = (): ConfirmFn => {
     if (yolo) return async () => true;
-    return async (message: string): Promise<boolean> => {
-      try {
-        const answer = await singleRl.question(`  ${chalk.yellow('▶')} ${message} (y/n): `);
-        return answer.trim().toLowerCase() === 'y';
-      } catch {
-        console.log(chalk.dim('  Cancelled.'));
-        return false;
-      }
-    };
+    return async (message: string): Promise<boolean> => confirmPrompt({ message });
   };
 
   // ── Paste mode (--paste / -p) ─────────────────────────────────────────────
@@ -291,8 +287,7 @@ async function main(prompt: string | undefined, opts: {
   
   // ── Single-turn mode ──────────────────────────────────────────────────────
   if (prompt) {
-    const singleRl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const singleConfirmFn = createSingleTurnConfirmFn(singleRl);
+    const singleConfirmFn = createSingleTurnConfirmFn();
     pushMessage({ role: 'user', content: prompt });
     systemPrompt = buildSystemPrompt(knowledgeBase, getRecentlyModified());
     await runAgentTurn(client, getMessages(), systemPrompt, {
@@ -302,7 +297,6 @@ async function main(prompt: string | undefined, opts: {
     await saveGraph(TOKEN_GRAPH_FILE);
     stopWatcher();
     await terminalManager.killAll();
-    singleRl.close();
     return;
   }
 
@@ -387,16 +381,7 @@ async function main(prompt: string | undefined, opts: {
 
   const confirmFn: ConfirmFn = yolo
     ? async () => true
-    : async (message: string): Promise<boolean> => {
-        try {
-          const answer = await ask(`  ${chalk.yellow('▶')} ${message} (y/n): `);
-          return answer.trim().toLowerCase() === 'y';
-        } catch {
-          // Ctrl+C during the prompt — treat as rejection, not a crash
-          console.log(chalk.dim('  Cancelled.'));
-          return false;
-        }
-      };
+    : async (message: string): Promise<boolean> => confirmPrompt({ message });
 
   // Single-shot LLM call injected into CommandContext (used by /compact)
   const callLLM = async (msgs: Parameters<typeof streamMessage>[3]): Promise<string> => {
@@ -408,9 +393,9 @@ async function main(prompt: string | undefined, opts: {
   while (true) {
     let userInput: string;
     try {
-      promptPrintSeperator(sessionName);
+      await promptPrintSeperator(sessionName);
       userInput = await askMultiline(`  ${chalk.cyan('❯')} `);
-      promptPrintSeperator();
+      await promptPrintSeperator();
     } catch {
       if (process.stdin.destroyed) {
         clearInterval(keepAlive);
@@ -486,13 +471,12 @@ async function main(prompt: string | undefined, opts: {
             model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: retryAc.signal,
           });
 
-          // Context bar + auto-compact guard
+          // Auto-compact guard (the context bar is printed per-step by the agent)
           const contextLimit = getContextLimit();
           const rawTokens = retryResult.promptTokens > 0
             ? retryResult.promptTokens
             : Math.ceil(getMessages().reduce((sum, m) =>
                 sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0) / 4);
-          printContextBar(rawTokens, contextLimit, CONTEXT_GUARD_THRESHOLD);
           if (rawTokens > contextLimit * CONTEXT_GUARD_THRESHOLD) {
             console.log(chalk.yellow(`  ⚠️  Auto-compacting...`));
             await runCompact(callLLM, 'auto');
@@ -530,13 +514,12 @@ async function main(prompt: string | undefined, opts: {
         model, maxSteps, confirm: confirmFn, showRaw, sessionId, signal: ac.signal,
       });
 
-      // Context bar + auto-compact guard
+      // Auto-compact guard (the context bar is printed per-step by the agent)
       const contextLimit = getContextLimit();
       const rawTokens = turnResult.promptTokens > 0
         ? turnResult.promptTokens
         : Math.ceil(getMessages().reduce((sum, m) =>
             sum + ('content' in m && typeof m.content === 'string' ? m.content.length : 0), 0) / 4);
-      printContextBar(rawTokens, contextLimit, CONTEXT_GUARD_THRESHOLD);
       if (rawTokens > contextLimit * CONTEXT_GUARD_THRESHOLD) {
         console.log(chalk.yellow(`  ⚠️  Auto-compacting...`));
         await runCompact(callLLM, 'auto');

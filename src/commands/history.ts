@@ -7,7 +7,7 @@
 
 import chalk from 'chalk';
 import { getMessages } from '../memory.js';
-import { printSeparator } from '../ui.js';
+import { printSeparator } from '../ui/index.js';
 import type { SlashCommand } from './types.js';
 
 export const command: SlashCommand = {
@@ -20,7 +20,7 @@ export const command: SlashCommand = {
     } else {
       console.log();
       console.log(chalk.cyan.bold(`  📜 Chat History (${msgs.length} messages):`));
-      printSeparator();
+      await printSeparator();
       for (const msg of msgs) {
         const role = msg.role === 'user' ? '🧑 You' : msg.role === 'assistant' ? '🤖 AI' : `🔧 ${msg.role}`;
         let contentStr = '';
@@ -32,7 +32,7 @@ export const command: SlashCommand = {
         const preview = contentStr.split('\n')[0]?.slice(0, 100) || '[tool call/response]';
         console.log(`  ${role}: ${preview}`);
       }
-      printSeparator();
+      await printSeparator();
     }
     console.log();
     return { type: 'continue' };
