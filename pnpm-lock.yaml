@@ -24,8 +24,8 @@ importers:
         specifier: ^18.0.9
         version: 18.0.9
       execa:
-        specifier: ^10.1.0
-        version: 10.1.0
+        specifier: ^10.2.1
+        version: 10.2.1
       fast-glob:
         specifier: ^3.3.3
         version: 3.3.3
@@ -790,8 +790,8 @@ packages:
     resolution: {integrity: sha512-UpzcLCXolUWcNu5HtVMHYdXJjArjsF9C0aNnquZYY4uW/Vu0miy5YoWvbV345HauVvcAUnpRuhMMcqTcGOY2+w==}
     engines: {node: '>=8'}
 
-  execa@10.1.0:
-    resolution: {integrity: sha512-5HT/600HqXEtmkb9mK/PkTWw+bQSCzPnWiZ4/87wD3Hi0wFzCapOuNT9p4M08PDd+KLHdHvFhKjOWmNx/npRNQ==}
+  execa@10.2.1:
+    resolution: {integrity: sha512-/Bofl3ZBh2Q4/PG0W63qFzP5vDAypi8Zc90UWTBzaDNIYiX7apPOd0N6L8hG8CojUdq4V51adu8BObP+iVsSTw==}
     engines: {node: '>=22'}
 
   fast-glob@3.3.3:
@@ -1671,7 +1671,7 @@ snapshots:
 
   escape-string-regexp@2.0.0: {}
 
-  execa@10.1.0:
+  execa@10.2.1:
     dependencies:
       '@sindresorhus/merge-streams': 4.0.0
       figures: 6.1.0
