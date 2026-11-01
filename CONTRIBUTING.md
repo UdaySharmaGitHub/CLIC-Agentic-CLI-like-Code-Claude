@@ -102,6 +102,7 @@ All branches must follow this pattern:
 | `testing/` | Adding or updating test files only | `testing/updating-testcases-files` |
 | `infra/` | Build, CI, config, or tooling changes | `infra/add-github-actions-ci` |
 | `documentation/` | Documentation-only changes | `documentation/update-contributing-guide` |
+| `security/` | Security fixes, audits, or hardening | `security/fix-command-injection-in-run-command` |
 
 Real branch names from this project for reference:
 ```
