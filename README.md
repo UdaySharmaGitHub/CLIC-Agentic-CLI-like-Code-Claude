@@ -108,14 +108,15 @@ CLIC is a terminal-based Agentic CLI that can read/write files, run persistent s
 | **`openai`** | OpenAI-compatible API client with streaming + function calling |
 | **`zod`** | Runtime input validation — each tool declares a `z.ZodObject` schema; `executeTool()` runs `safeParse` before calling `execute()` |
 | **`commander`** | CLI argument parsing (`--model`, `--kb`, `--yolo`, `--full-history`, etc.) |
-| **`@clack/prompts`** | Interactive setup wizard (API key, model picker, KB file) |
+| **`ink`** | React-based interactive TUI — powers the setup wizard, model picker, confirm dialogs, and the startup banner |
+| **`ink-spinner`** | Animated "Thinking…" spinner rendered while waiting for LLM responses |
+| **`react`** | Required peer for Ink components |
 | **`execa`** | Safe subprocess execution with timeout + error capture |
 | **`fast-glob`** | Glob-based file search |
 | **`diff`** | Unified diff generation for `write_file` / `modify_file` preview |
-| **`chokidar`** | Cross-platform filesystem watcher for workspace file activity tracking (pinned to v3) |
+| **`chokidar`** | Cross-platform filesystem watcher for workspace file activity tracking |
 | **`node-pty`** | Native PTY bindings for persistent shell sessions — powers the terminal pool in `src/terminal.ts` |
 | **`chalk`** | Colored terminal output |
-| **`ora`** | Spinner while waiting for LLM responses |
 | **`dotenv`** | Load `.env` config (API keys) |
 | **`tsx`** | Run TypeScript directly during development |
 | **`tsup`** | Bundle for production distribution |
@@ -129,7 +130,8 @@ clic/
 ├── src/
 │   ├── index.ts              ← CLI entry point + REPL loop + context-window guard (auto-compact)
 │   ├── agent.ts              ← ReAct agentic loop (runAgentTurn) + parallel/sequential tool dispatch + KG recording
-│   ├── openai.ts             ← OpenAI SDK wrapper (createClient / streamMessage / withRetry / TokenUsage)
+│   ├── openai.ts             ← OpenAI SDK wrapper (createClient / streamMessage / TokenUsage / AbortSignal)
+│   ├── retry.ts              ← withRetry() exponential backoff helper (imported by openai.ts)
 │   ├── knowledgeGraph.ts     ← Token-tracking Knowledge Graph (persisted to token_graph.json)
 │   ├── pricing.ts            ← Real-time model pricing via LiteLLM proxy (getCost / formatCost / isPricingLoaded)
 │   ├── prompts.ts            ← System prompt builder (buildSystemPrompt — injects workspace activity + KB)
@@ -140,7 +142,12 @@ clic/
 │   ├── privacy.ts            ← Ephemeral-session flag (setEphemeral / isEphemeral; dependency-free singleton)
 │   ├── safety.ts             ← Blocked commands + protected paths
 │   ├── config.ts             ← Env loading, constants, context limits, session paths, KB loader
-│   ├── ui.ts                 ← Banner, help, status, context bar, diff view, chalk formatters
+│   ├── ui/
+│   │   ├── index.ts          ← UI adapter: Ink on TTY, chalk fallback on non-TTY; exports all print* + selectPrompt / textPrompt / confirmPrompt / startSpinner
+│   │   ├── fallback.ts       ← Synchronous chalk implementations for non-TTY (pipes, CI)
+│   │   ├── helpers.ts        ← Pure helpers: actionLabel, sessionNameBadge, CANCEL, SelectItem
+│   │   ├── theme.ts          ← Color palette, ACTION_STYLES, SESSION_PALETTE
+│   │   └── components/       ← Ink React components (Banner, ThinkingSpinner, SelectPicker, ConfirmDialog, …)
 │   ├── commands/
 │   │   ├── index.ts          ← Command registry + router + tab completer
 │   │   ├── types.ts          ← Shared types (SlashCommand, CommandContext, CommandAction)
@@ -174,6 +181,11 @@ clic/
 │       ├── githubExtractor.ts← github tool (profile, streak, repos)
 │       ├── terminal.ts       ← terminal tool (PTY pool actions: create/list/read/write/start/kill/wait)
 │       └── listModelfromOpenAI.ts ← fetchAvailableModelOptions() startup helper (not in tool registry)
+├── docs/
+│   ├── adr/                  ← Architecture Decision Records
+│   ├── features/             ← Per-feature documentation
+│   ├── infrastructure/       ← Infrastructure and deployment docs
+│   └── superpowers/          ← Superpowers skill documentation
 ├── roles based Workflow/     ← Built-in role/persona files (auto-discovered)
 ├── .env                      ← API keys (not committed)
 ├── .env.example              ← Template for .env
@@ -314,7 +326,7 @@ flowchart TD
 
 **Parallel tool execution**: Controlled by a single user confirmation per batch — "Run all N tools in parallel?" When parallel, individual per-tool confirms are auto-approved to avoid garbled output. When sequential, each tool goes through its own confirm. The LLM issues dependent calls across separate turns naturally.
 
-**Step limit**: Max 15 steps per user turn (configurable via `--max-steps`).
+**Step limit**: Max 20 steps per user turn (configurable via `--max-steps`).
 
 ### Tool System
 
@@ -380,7 +392,8 @@ Registered tools:
 |---|---|
 | **`index.ts`** | CLI parsing, setup wizard, live model picker, REPL loop, context-window guard (renders `printContextBar` + triggers `runCompact` at 80% fill). Passes extended `CommandContext` (with `callLLM`, `systemPrompt`, `sessionId`) to commands; handles `retry` and `update` actions (recreates OpenAI client on model swap) |
 | **`agent.ts`** | The ReAct loop — calls the API via `openai.ts`, handles streaming. When >1 tool call arrives, shows a queue preview and asks "parallel or sequential?" — parallel uses `Promise.all` with auto-approved per-tool confirms; sequential runs each with its own confirm. After each turn records session/turn/model/tool/usage nodes in the Knowledge Graph |
-| **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Wraps the API call in `withRetry()` (exponential backoff on 429/5xx, up to 4 attempts). Accepts an optional `AbortSignal` passed through to the SDK's `create()` call. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
+| **`openai.ts`** | Thin wrapper around `openai` — `createClient()` + `streamMessage()` with tool-call chunk assembly. Accepts an optional `AbortSignal` passed through to the SDK's `create()` call. Returns `LLMResponse` including `TokenUsage` (actual from `stream_options.include_usage`) |
+| **`retry.ts`** | `withRetry()` — exponential backoff on 429/5xx, up to 4 attempts (1 s → 2 s → 4 s + jitter). Imported by `openai.ts`; accepts an `AbortSignal` to stop retrying on user abort |
 | **`knowledgeGraph.ts`** | In-memory graph with `addNode()` / `addEdge()` / query helpers (`getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`, `getSessionTokensByModel`, `getGlobalTokensByModel`). Persisted to `token_graph.json` |
 | **`pricing.ts`** | Real-time pricing from LiteLLM proxy `/model/info` — `loadPricing()` (called at startup), `getCost()`, `getPricing()`, `formatCost()`, `isPricingLoaded()`. Used by `/tokens` to compute estimated USD spend |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional `Workspace File Activity` block (from `getRecentlyModified()`) + optional knowledge base |
@@ -391,7 +404,10 @@ Registered tools:
 | **`privacy.ts`** | Dependency-free singleton for ephemeral-session mode — `setEphemeral(value)`, `isEphemeral()`. Imported by `memory.ts`, `knowledgeGraph.ts`, and `session.ts` to skip all disk writes when enabled |
 | **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `TERMINAL_SHELL`, `TERMINAL_MAX`, `TERMINAL_CMD_TIMEOUT_MS`, `TERMINAL_BUFFER_LINES`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
-| **`ui.ts`** | `printBanner()`, `printHelp()`, `printStatus()`, `printStepHeader()`, `printSeparator()`, `promptPrintSeperator()`, `printToolHeader()`, `printToolSuccess()`, `printToolError()`, `printToolBlocked()`, `printRejected()`, `printDimOutput()`, `printContextBar()`, `actionLabel()`, `sessionNameBadge()` |
+| **`ui/index.ts`** | UI adapter — Ink-based rendering on TTY, synchronous chalk fallback on non-TTY. Exports all `print*` functions plus `selectPrompt`, `textPrompt`, `confirmPrompt`, `startSpinner` (Ink spinner mounted while LLM thinks, torn down on first token) |
+| **`ui/fallback.ts`** | Synchronous chalk implementations used when `process.stdout.isTTY` is false (pipes, CI) |
+| **`ui/helpers.ts`** | Pure UI helpers: `actionLabel`, `sessionNameBadge`, `CANCEL` sentinel (replaces `@clack/prompts` `isCancel`), `SelectItem` type |
+| **`ui/theme.ts`** | Color palette constants (`LOGO_COLORS`, `SESSION_PALETTE`, `ACTION_STYLES`) used by Ink components and helpers |
 | **`commands/types.ts`** | Shared types: `SlashCommand`, `CommandContext` (with `callLLM` + `sessionId`), `CommandAction` (`continue`/`exit`/`retry`/`update`) |
 | **`commands/index.ts`** | Registry: imports all commands, supports `args` parsing (e.g. `/model gpt-4o`), exports `executeCommand()`, `isSlashedCommand()`, `getSlashCommands()`, `slashCompleter()` |
 | **`tools/types.ts`** | Shared types: `ConfirmFn`, `ToolResult`, `ToolDefinition` (includes `schema: z.ZodTypeAny` for the Zod validation gate) |
@@ -484,7 +500,7 @@ Runs the prompt, outputs the result, and exits.
 |---|---|---|
 | `--model <model>` | `gpt-4o` | Model to use (see live picker at startup) |
 | `--kb <path>` | — | Path to a knowledge base / role file |
-| `--max-steps <n>` | `15` | Max agent steps per user turn |
+| `--max-steps <n>` | `20` | Max agent steps per user turn |
 | `--yolo` | `false` | Auto-approve all actions (skip confirmations) |
 | `--full-history` | `false` | Load entire chat history (default: last 10 messages) |
 | `--session <name>` | `default` | Load or create a named session; names may contain letters, digits, dashes, underscores |
@@ -916,7 +932,7 @@ Skills live in [.claude/skills/](.claude/skills/) and provide reusable, stateful
 
 #### `run-clic` skill
 
-The `run-clic` skill wraps CLIC in a **tmux session** via a Node.js driver script, solving the core problem that `@clack/prompts` requires a real TTY — you cannot run `pnpm dev` from a backgrounded shell command. The driver provides a programmable interface for Claude Code subagents to launch, interact with, and observe the running CLIC instance.
+The `run-clic` skill wraps CLIC in a **tmux session** via a Node.js driver script, solving the core problem that Ink's interactive prompts require a real TTY — you cannot run `pnpm dev` from a backgrounded shell command. The driver provides a programmable interface for Claude Code subagents to launch, interact with, and observe the running CLIC instance.
 
 **Prerequisite:** `brew install tmux`
 
@@ -947,7 +963,7 @@ node .claude/skills/run-clic/driver.mjs quit
 
 **Key gotchas the skill documents:**
 
-- `--model gpt-4o` does **not** skip the model picker — `gpt-4o` is `DEFAULT_MODEL`, so `src/index.ts` treats it as unset and shows the picker anyway. Pass a different model name or let the driver press Enter on the highlighted default.
+- `--model gpt-4o` does **not** skip the model picker — `gpt-4o` is `DEFAULT_MODEL`, so `src/index.ts` treats it as unset and shows the Ink picker anyway. Pass a different model name or let the driver press Enter on the highlighted default.
 - Paths with spaces in the project root are handled by the driver passing paths through tmux environment variables (`CLIC_ROOT`, `CLIC_TSX`) rather than embedding them in shell strings.
 - `chat_history.json` accumulates across driver runs — run `echo "[]" > chat_history.json` to reset context before a clean test.
 

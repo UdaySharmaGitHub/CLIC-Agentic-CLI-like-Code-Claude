@@ -4,6 +4,7 @@
 
 ## Table of Contents
 
+- [Related Workflow Docs](#related-workflow-docs)
 - [Overview](#overview)
 - [Architecture](#architecture)
   - [Files involved](#files-involved)
@@ -19,6 +20,22 @@
 - [Edge cases & safety](#edge-cases--safety)
 - [Example: what a passing PR looks like](#example-what-a-passing-pr-looks-like)
 - [Future workflows](#future-workflows)
+
+---
+
+## Related Workflow Docs
+
+Detailed documentation for each individual GitHub Actions workflow:
+
+| Workflow | Document |
+|---|---|
+| CI pipeline | [ci.md](GitHub%20Action%20Docs/ci.md) |
+| CodeQL security scanning | [codeql.md](GitHub%20Action%20Docs/codeql.md) |
+| Dependabot | [dependabot.md](GitHub%20Action%20Docs/dependabot.md) |
+| Dependabot auto-merge | [dependabot-auto-merge.md](GitHub%20Action%20Docs/dependabot-auto-merge.md) |
+| PR labeler | [pr-labeler.md](GitHub%20Action%20Docs/pr-labeler.md) |
+| Stale issue management | [stale.md](GitHub%20Action%20Docs/stale.md) |
+| Welcome bot | [welcome.md](GitHub%20Action%20Docs/welcome.md) |
 
 ---
 

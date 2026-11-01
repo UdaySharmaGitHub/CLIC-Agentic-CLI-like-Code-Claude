@@ -37,6 +37,8 @@ pnpm test:watcher               # Watcher pure-helper tests (test/watcher.test.t
 pnpm test:privacy               # Privacy / --no-history ephemeral-mode tests (test/privacy.test.ts)
 pnpm test:export                # Conversation export formatter tests (test/export.test.ts)
 pnpm test:terminal              # Terminal module tests — pure helpers + TerminalManager integration (test/terminal.test.ts)
+pnpm test:web-search            # Web search integration tests (test/web-search.test.ts)
+pnpm test:ui                    # UI component and rendering tests (test/ui.test.ts)
 ```
 
 TypeScript checking is implicit via `tsx` at runtime.
@@ -68,15 +70,20 @@ User input (REPL or single-turn)
 
 | File | Role |
 |---|---|
-| `src/index.ts` | Entry point: CLI parsing (`commander`), setup wizard (`@clack/prompts`), live model picker, REPL loop, context-window guard (auto-compact at 80% usage) |
+| `src/index.ts` | Entry point: CLI parsing (`commander`), setup wizard (Ink interactive prompts), live model picker, REPL loop, context-window guard (auto-compact at 80% usage) |
 | `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached; when >1 tool call arrives, asks user "parallel or sequential?" — parallel runs all via `Promise.all`, sequential runs one-by-one with individual confirms; supports `AbortSignal` for mid-run cancellation; records each turn in KG; returns `promptTokens` for context-bar rendering |
-| `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks, wraps API call in `withRetry()` (exponential backoff on 429/5xx), accepts optional `AbortSignal`, returns `LLMResponse` with `TokenUsage` |
+| `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks, accepts optional `AbortSignal`, returns `LLMResponse` with `TokenUsage` |
+| `src/retry.ts` | `withRetry()` — exponential backoff helper (HTTP 429/500/502/503/504, up to 4 attempts, 1 s → 2 s → 4 s + jitter); imported by `openai.ts` |
 | `src/memory.ts` | In-memory `ChatMessage[]` store (OpenAI message format) + JSON persistence; exports `setHistoryFile`, `getHistoryFile`, `pushMessage`, `getMessages`, `popMessage`, `clearMessages`, `messageCount`, `loadHistory`, `saveHistory`, `trimToLastUserMessage` |
 | `src/knowledgeGraph.ts` | Token-tracking Knowledge Graph (session → turn → model/tools/usage); persisted to `token_graph.json`; exports `addNode`, `addEdge`, `getGraph`, `getNodeById`, `getNeighbors`, `getAllSessionNodes`, `getSessionTokenSummary`, `getGlobalTokenSummary`, `getSessionToolUsage`, `getSessionTokensByModel`, `getGlobalTokensByModel`, `loadGraph`, `saveGraph` |
 | `src/pricing.ts` | Real-time model pricing via LiteLLM proxy `/model/info`; exports `loadPricing`, `getCost`, `getPricing`, `formatCost`, `isPricingLoaded` — used by `/tokens` to show estimated USD cost per session and all-time |
 | `src/prompts.ts` | Builds the system prompt with live system context (OS, user, CWD, date); `buildSystemPrompt(knowledgeBase?, recentFiles?)` injects a `Workspace File Activity` block when `recentFiles` is non-empty, and an optional knowledge base block |
 | `src/config.ts` | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `TERMINAL_SHELL`, `TERMINAL_MAX`, `TERMINAL_CMD_TIMEOUT_MS`, `TERMINAL_BUFFER_LINES`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
-| `src/ui.ts` | All terminal rendering: animated banner, box-drawing, tool headers, status panel, diff view, context progress bar; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `actionLabel`, `sessionNameBadge` |
+| `src/ui/index.ts` | UI adapter: Ink-based rendering on TTY, chalk fallback on non-TTY; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `selectPrompt`, `textPrompt`, `confirmPrompt`, `startSpinner` |
+| `src/ui/fallback.ts` | Synchronous chalk implementations used when `process.stdout.isTTY` is false (pipes, CI, tests) |
+| `src/ui/helpers.ts` | Pure UI helpers: `actionLabel`, `sessionNameBadge`, `CANCEL` sentinel, `SelectItem` type, `selectInitialIndex` |
+| `src/ui/theme.ts` | Color palette constants, `ACTION_STYLES`, `SESSION_PALETTE` |
+| `src/ui/components/` | Ink React components: `Banner`, `ThinkingSpinner`, `Separator`, `StepHeader`, `ContextBar`, `ToolHeader`, `ToolResult`, `DimOutput`, `Help`, `Status`, `SelectPicker`, `TextPrompt`, `ConfirmDialog` |
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
 | `src/privacy.ts` | Runtime "ephemeral session" flag for `--no-history`; exports `setEphemeral()`, `isEphemeral()`. Dependency-free. `saveHistory()`, `saveGraph()`, and `saveIndex()` early-return when `isEphemeral()` so nothing is persisted |
 | `src/session.ts` | Named-session lifecycle: `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `hasSession()`, `setActive()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`, `assertValidName()` — persists `sessions.json` + per-session `sessions/<name>/` directories |
@@ -174,7 +181,7 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - **Workspace file watcher:** `startWatcher(cwd)` is called after setup (unless `--no-watch`). chokidar watches the CWD at depth 4, recording external file changes in a 15-min rolling window. Before each agent turn, `buildSystemPrompt` is refreshed with `getRecentlyModified()` to inject a `Workspace File Activity` block. `read_file` prepends a staleness note when a file changed since the agent last saw it. `stopWatcher()` is called on all exit paths. Pass `--no-watch` to disable for large repos, NFS mounts, or Docker.
 - **Privacy / `--no-history` (ephemeral session):** pass `--no-history` to run without persisting anything to disk. `index.ts` calls `setEphemeral(true)` (from `src/privacy.ts`) at startup; `saveHistory()`, `saveGraph()`, and `saveIndex()` then early-return, so chat history, the token graph, and the session index are never written — covering every write path (single-turn, `--paste`, SIGINT, auto-compact, `/session` switches). Reads still work: prior context is loaded once at startup, and in ephemeral mode `index.ts` skips the disk-mutating setup steps (`migrateLegacy`, `ensureSession`, `setActive`) and prints a `🔒 Privacy` banner. Combined with `--session <name>`, it warns and loads that session read-only.
 - **Persistent terminals / `--no-terminals`:** by default `run_command` routes through a `TerminalManager` singleton (`src/terminal.ts`) backed by node-pty, so shell state (cwd, env, venv) persists across calls on the implicit `main` terminal. Pass `--no-terminals` to call `disableTerminals()` (from `src/tools/runCommand.ts`) and revert to the legacy one-shot `execa` path — useful when node-pty prebuilds are unavailable. On every exit path `terminalManager.killAll()` is called alongside `stopWatcher()` to tear down all PTY processes.
-- **Mid-session `/privacy` command:** `/privacy` opens an arrow-key picker (via `@clack/prompts` `select`, mirroring `/model` and `/role`) that shows the current mode (`initialValue`) and toggles ephemeral mode without a restart. It calls `setEphemeral()` on the `src/privacy.ts` singleton directly — no `CommandContext` field or `index.ts` handler branch. The pure `privacyTransition(from, to)` helper (exported from `src/commands/privacy.ts`, unit-tested in `test/privacy.test.ts`) computes the warning lines. Because protection is only partial mid-session, transitions warn loudly: enabling does **not** erase turns already written this session; disabling writes the **full in-memory history — including turns recorded while privacy was ON — on the next save**. `/status` shows the current privacy state.
+- **Mid-session `/privacy` command:** `/privacy` opens an arrow-key picker (via the Ink-based `selectPrompt`, mirroring `/model` and `/role`) that shows the current mode (`initialValue`) and toggles ephemeral mode without a restart. It calls `setEphemeral()` on the `src/privacy.ts` singleton directly — no `CommandContext` field or `index.ts` handler branch. The pure `privacyTransition(from, to)` helper (exported from `src/commands/privacy.ts`, unit-tested in `test/privacy.test.ts`) computes the warning lines. Because protection is only partial mid-session, transitions warn loudly: enabling does **not** erase turns already written this session; disabling writes the **full in-memory history — including turns recorded while privacy was ON — on the next save**. `/status` shows the current privacy state.
 
 ### Generated files (gitignored)
 
@@ -216,7 +223,7 @@ Project-specific slash commands in `.claude/commands/` — available as `/comman
 | Skill | Location | What it does |
 |---|---|---|
 | `run-clic` | `.claude/skills/run-clic/` | Drive CLIC via tmux PTY — single-turn, REPL, slash commands, headless |
-| `adr` | `.agents/skills/adr/` | Author a new ADR in the correct format and update the docs/adr/README.md index |
+| `adr` | `.claude/skills/adr/` | Author a new ADR in the correct format and update the docs/adr/README.md index |
 
 Full driver documentation: `.agents/skills/run-clic.md`
 

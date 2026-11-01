@@ -107,6 +107,8 @@ pnpm test:watcher               # Watcher pure-helper tests
 pnpm test:privacy               # Privacy / --no-history ephemeral-mode tests
 pnpm test:export                # Conversation export formatter tests
 pnpm test:terminal              # Terminal module tests
+pnpm test:web-search            # Web search integration tests
+pnpm test:ui                    # UI component and rendering tests
 ```
 
 TypeScript checking is implicit via `tsx` at runtime. Run `pnpm build` to surface type errors explicitly.
@@ -140,13 +142,18 @@ User input (REPL or single-turn)
 |---|---|
 | `src/index.ts` | Entry point: CLI parsing, setup wizard, model picker, REPL loop, context-window guard (auto-compact at 80% usage) |
 | `src/agent.ts` | ReAct loop — iterates until LLM returns no tool calls or `maxSteps` is reached; supports `AbortSignal` for mid-run cancellation; records each turn in KG |
-| `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks, wraps API call in `withRetry()` (exponential backoff on 429/5xx) |
+| `src/openai.ts` | OpenAI SDK wrapper; `createClient()` + `streamMessage()`, assembles streaming tool-call chunks; accepts optional `AbortSignal` passed through to the SDK |
+| `src/retry.ts` | `withRetry()` — exponential backoff helper (HTTP 429/500/502/503/504, up to 4 attempts); imported by `openai.ts` |
 | `src/memory.ts` | In-memory `ChatMessage[]` store + JSON persistence; exports `pushMessage`, `getMessages`, `popMessage`, `clearMessages`, `loadHistory`, `saveHistory` |
 | `src/knowledgeGraph.ts` | Token-tracking Knowledge Graph (session → turn → model/tools/usage); persisted to `token_graph.json` |
 | `src/pricing.ts` | Real-time model pricing via LiteLLM proxy `/model/info`; used by `/tokens` to show estimated USD cost |
 | `src/prompts.ts` | Builds the system prompt with live system context; injects `Workspace File Activity` block and optional knowledge base |
 | `src/config.ts` | Loads `.env` via dotenv; exports all constants, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
-| `src/ui.ts` | All terminal rendering: banner, box-drawing, tool headers, status panel, diff view, context progress bar |
+| `src/ui/index.ts` | UI adapter: Ink-based rendering on TTY, chalk fallback on non-TTY; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `selectPrompt`, `textPrompt`, `confirmPrompt`, `startSpinner` |
+| `src/ui/fallback.ts` | Synchronous chalk implementations used when `process.stdout.isTTY` is false (pipes, CI) |
+| `src/ui/helpers.ts` | Pure UI helpers: `actionLabel`, `sessionNameBadge`, `CANCEL` sentinel, `SelectItem` type, `selectInitialIndex` |
+| `src/ui/theme.ts` | Color palette constants, `ACTION_STYLES`, `SESSION_PALETTE` |
+| `src/ui/components/` | Ink React components: `Banner`, `ThinkingSpinner`, `Separator`, `StepHeader`, `ContextBar`, `ToolHeader`, `ToolResult`, `DimOutput`, `Help`, `Status`, `SelectPicker`, `TextPrompt`, `ConfirmDialog` |
 | `src/safety.ts` | `isCommandSafe()` (blocked patterns) + `isPathSafe()` (protected paths) |
 | `src/privacy.ts` | Runtime ephemeral-session flag for `--no-history`; `saveHistory()`, `saveGraph()`, `saveIndex()` early-return when ephemeral |
 | `src/session.ts` | Named-session lifecycle: create, rename, delete, switch; persists `sessions.json` + per-session directories |
