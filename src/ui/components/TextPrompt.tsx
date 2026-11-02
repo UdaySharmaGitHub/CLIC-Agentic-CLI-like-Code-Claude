@@ -10,9 +10,11 @@ export interface TextPromptProps {
   validate?: (value: string) => string | undefined;
   onSubmit: (value: string) => void;
   onCancel: () => void;
+  up?: () => string | null;
+  down?: () => string | null;
 }
 
-export function TextPrompt({ message, placeholder, mask, validate, onSubmit, onCancel }: TextPromptProps) {
+export function TextPrompt({ message, placeholder, mask, validate, onSubmit, onCancel, up, down }: TextPromptProps) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
 
@@ -24,6 +26,8 @@ export function TextPrompt({ message, placeholder, mask, validate, onSubmit, onC
       onSubmit(value);
       return;
     }
+    if (key.upArrow && up) { const v = up(); if (v !== null) setValue(v); return; }
+    if (key.downArrow && down) { setValue(down() ?? ''); return; }
     if (key.backspace || key.delete) { setValue(v => v.slice(0, -1)); setError(undefined); return; }
     if (input && !key.ctrl && !key.meta) { setValue(v => v + input); setError(undefined); }
   });

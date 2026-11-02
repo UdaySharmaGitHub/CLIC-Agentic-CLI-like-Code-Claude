@@ -254,6 +254,101 @@ export async function runUiTests(): Promise<{ passed: number; failed: number }> 
   eq('printContextBar(0 tokens) resolves without error', r6 instanceof Promise, true);
   await r6;
 
+  // ── useHistory hook (via createHistoryState pure factory) ────
+  const { createHistoryState } = await import('../src/ui/hooks/useHistory.js');
+
+  function makeHistory(maxEntries?: number) {
+    return createHistoryState(maxEntries);
+  }
+
+  {
+    const h = makeHistory();
+    eq('useHistory push empty string is a no-op', (() => { h.push(''); return h.up(); })(), null);
+  }
+
+  {
+    const h = makeHistory();
+    eq('useHistory push whitespace-only is a no-op', (() => { h.push('   '); return h.up(); })(), null);
+  }
+
+  {
+    const h = makeHistory();
+    h.push('hello');
+    eq('useHistory up() returns most recent entry', h.up(), 'hello');
+  }
+
+  {
+    const h = makeHistory();
+    h.push('first');
+    h.push('second');
+    eq('useHistory up() after two pushes returns newest', h.up(), 'second');
+    eq('useHistory up() again returns older entry', h.up(), 'first');
+  }
+
+  {
+    const h = makeHistory();
+    h.push('only');
+    h.up();
+    eq('useHistory up() clamps at oldest entry (no null on over-scroll)', h.up(), 'only');
+  }
+
+  {
+    const h = makeHistory();
+    h.push('a');
+    h.push('b');
+    h.up(); // → 'b'
+    eq('useHistory down() after one up returns null (fresh prompt)', h.down(), null);
+  }
+
+  {
+    const h = makeHistory();
+    h.push('a');
+    h.push('b');
+    h.up(); // → 'b'
+    h.up(); // → 'a'
+    eq('useHistory down() from oldest walks forward', h.down(), 'b');
+  }
+
+  {
+    const h = makeHistory();
+    for (let i = 1; i <= 3; i++) h.push(`entry${i}`);
+    // Re-push existing entry should move it to front, not duplicate
+    h.push('entry1');
+    // Total entries should be 3, not 4
+    const h2 = makeHistory();
+    for (let i = 1; i <= 3; i++) h2.push(`item${i}`);
+    h2.push('item1');
+    // Navigate to end
+    let v: string | null = null;
+    let prev: string | null = null;
+    let total = 0;
+    do { prev = v; v = h2.up(); total++; } while (v !== prev && total < 10);
+    eq('useHistory deduplication: no duplicate entries', total - 1, 3);
+  }
+
+  {
+    const h = makeHistory(3);
+    h.push('a');
+    h.push('b');
+    h.push('c');
+    h.push('d'); // should evict 'a'
+    const entries: string[] = [];
+    let v: string | null;
+    while ((v = h.up()) !== null && !entries.includes(v)) entries.push(v);
+    eq('useHistory maxEntries cap evicts oldest', entries.includes('a'), false);
+    eq('useHistory maxEntries cap keeps newest 3', entries.length, 3);
+  }
+
+  {
+    const h = makeHistory();
+    eq('useHistory down() on empty history returns null', h.down(), null);
+  }
+
+  {
+    const h = makeHistory();
+    eq('useHistory up() on empty history returns null', h.up(), null);
+  }
+
   console.log(`  ── ${passed} passed, ${failed} failed`);
   return { passed, failed };
 }
