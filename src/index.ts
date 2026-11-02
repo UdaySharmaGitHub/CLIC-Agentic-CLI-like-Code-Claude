@@ -319,14 +319,23 @@ async function main(prompt: string | undefined, opts: {
     process.exit(0);
   });
 
+  const sessionHistory: string[] = [];
+
   async function ask(q: string): Promise<string> {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       completer: slashCompleter,
+      history: sessionHistory,
+      historySize: 50,
     });
     try {
-      return await rl.question(q);
+      const answer = await rl.question(q);
+      if (answer.trim() && answer !== sessionHistory[0]) {
+        sessionHistory.unshift(answer);
+        if (sessionHistory.length > 50) sessionHistory.pop();
+      }
+      return answer;
     } finally {
       rl.close();
     }
