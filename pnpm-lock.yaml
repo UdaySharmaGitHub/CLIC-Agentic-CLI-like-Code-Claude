@@ -39,8 +39,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       openai:
-        specifier: ^7.46.0
-        version: 7.46.0(zod@4.6.7)
+        specifier: ^7.53.0
+        version: 7.53.0(zod@4.6.7)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -961,8 +961,8 @@ packages:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
 
-  openai@7.46.0:
-    resolution: {integrity: sha512-FmbPcDtc0BTCN7ZQ5SBEnC4lPNMEUjA6w/lRkbh7l9IzWx1Mue6P7OEU2cayp5S5YjLuc7VEUfBCYqoQpb6+1w==}
+  openai@7.53.0:
+    resolution: {integrity: sha512-PXiIZraFYMb2QYgTtWqDA16Oszj4fWRZNn7qLIAddmiJxM5uQPWBFaxp9O8MhLfTUOQ+iQsnFSRJhLPecsGovQ==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
@@ -1853,7 +1853,7 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
-  openai@7.46.0(zod@4.6.7):
+  openai@7.53.0(zod@4.6.7):
     optionalDependencies:
       zod: 4.6.7
 
