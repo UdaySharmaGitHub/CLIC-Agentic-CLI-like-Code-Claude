@@ -15,8 +15,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
       commander:
-        specifier: ^15.0.0
-        version: 15.0.0
+        specifier: ^15.1.0
+        version: 15.1.0
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -39,8 +39,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
       openai:
-        specifier: ^7.46.0
-        version: 7.46.0(zod@4.6.7)
+        specifier: ^7.53.0
+        version: 7.53.0(zod@4.6.7)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -747,8 +747,8 @@ packages:
     resolution: {integrity: sha512-xxodCmBen3iy2i0WtAK8FlFNrRzjUqjRsMfho58xT/wvZU1YTM3fCnRjcy1gJPMepaRlgm/0e6w8SpWHpn3/cA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  commander@15.0.0:
-    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==}
     engines: {node: '>=22.12.0'}
 
   commander@4.1.1:
@@ -961,8 +961,8 @@ packages:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
 
-  openai@7.46.0:
-    resolution: {integrity: sha512-FmbPcDtc0BTCN7ZQ5SBEnC4lPNMEUjA6w/lRkbh7l9IzWx1Mue6P7OEU2cayp5S5YjLuc7VEUfBCYqoQpb6+1w==}
+  openai@7.53.0:
+    resolution: {integrity: sha512-PXiIZraFYMb2QYgTtWqDA16Oszj4fWRZNn7qLIAddmiJxM5uQPWBFaxp9O8MhLfTUOQ+iQsnFSRJhLPecsGovQ==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
@@ -1631,7 +1631,7 @@ snapshots:
     dependencies:
       convert-to-spaces: 2.0.1
 
-  commander@15.0.0: {}
+  commander@15.1.0: {}
 
   commander@4.1.1: {}
 
@@ -1853,7 +1853,7 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
-  openai@7.46.0(zod@4.6.7):
+  openai@7.53.0(zod@4.6.7):
     optionalDependencies:
       zod: 4.6.7
 
