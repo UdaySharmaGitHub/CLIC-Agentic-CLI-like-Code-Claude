@@ -10,12 +10,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-  SESSIONS_DIR,
-  SESSIONS_INDEX_FILE,
+  sessionsDir,
+  sessionsIndexFile,
   DEFAULT_SESSION,
-  HISTORY_FILE,
-  TOKEN_GRAPH_FILE,
+  historyFile,
+  tokenGraphFile,
   sessionHistoryPath,
+  projectRoot,
 } from './config.js';
 import { getGraph, saveGraph, getSessionNodeByName } from './knowledgeGraph.js';
 import { isEphemeral } from './privacy.js';
@@ -58,7 +59,7 @@ function nowISO(): string {
 
 export async function loadIndex(): Promise<void> {
   try {
-    const data = await fs.readFile(SESSIONS_INDEX_FILE, 'utf-8');
+    const data = await fs.readFile(sessionsIndexFile(), 'utf-8');
     const parsed = JSON.parse(data) as SessionIndex;
     if (parsed && Array.isArray(parsed.sessions)) {
       index = parsed;
@@ -71,8 +72,8 @@ export async function loadIndex(): Promise<void> {
 export async function saveIndex(): Promise<void> {
   if (isEphemeral()) return; // privacy mode — keep the session index in memory only
   try {
-    await fs.mkdir(SESSIONS_DIR, { recursive: true });
-    await fs.writeFile(SESSIONS_INDEX_FILE, JSON.stringify(index, null, 2), 'utf-8');
+    await fs.mkdir(sessionsDir(), { recursive: true });
+    await fs.writeFile(sessionsIndexFile(), JSON.stringify(index, null, 2), 'utf-8');
   } catch {
     // Silently fail — the session index is not critical.
   }
@@ -113,7 +114,7 @@ export async function createSession(name: string): Promise<SessionMeta> {
     throw new Error(`Session "${name}" already exists.`);
   }
   if (!isEphemeral()) {
-    await fs.mkdir(path.join(SESSIONS_DIR, name), { recursive: true });
+    await fs.mkdir(path.join(sessionsDir(), name), { recursive: true });
   }
   const meta: SessionMeta = { name, createdAt: nowISO(), lastActiveAt: nowISO() };
   index.sessions.push(meta);
@@ -137,9 +138,9 @@ export async function renameSession(oldName: string, newName: string): Promise<v
 
   // Move the per-session directory (best-effort — it may not exist yet).
   try {
-    await fs.rename(path.join(SESSIONS_DIR, oldName), path.join(SESSIONS_DIR, newName));
+    await fs.rename(path.join(sessionsDir(), oldName), path.join(sessionsDir(), newName));
   } catch {
-    await fs.mkdir(path.join(SESSIONS_DIR, newName), { recursive: true });
+    await fs.mkdir(path.join(sessionsDir(), newName), { recursive: true });
   }
 
   // Update index entry + active pointer.
@@ -171,7 +172,7 @@ export async function deleteSession(name: string): Promise<void> {
     throw new Error(`Cannot delete the active session "${name}". Switch away first.`);
   }
   try {
-    await fs.rm(path.join(SESSIONS_DIR, name), { recursive: true, force: true });
+    await fs.rm(path.join(sessionsDir(), name), { recursive: true, force: true });
   } catch {
     // Directory may not exist — ignore.
   }
@@ -181,7 +182,7 @@ export async function deleteSession(name: string): Promise<void> {
   const graph = getGraph();
   graph.nodes = graph.nodes.filter(n => n.id !== nodeId);
   graph.edges = graph.edges.filter(e => e.from !== nodeId && e.to !== nodeId);
-  await saveGraph(TOKEN_GRAPH_FILE);
+  await saveGraph(tokenGraphFile());
 
   index.sessions = index.sessions.filter(s => s.name !== name);
   await saveIndex();
@@ -198,17 +199,17 @@ export async function migrateLegacy(): Promise<void> {
   if (index.sessions.length > 0) return;
 
   // Seed a default session entry.
-  await fs.mkdir(path.join(SESSIONS_DIR, DEFAULT_SESSION), { recursive: true });
+  await fs.mkdir(path.join(sessionsDir(), DEFAULT_SESSION), { recursive: true });
 
   const defaultHistory = sessionHistoryPath(DEFAULT_SESSION);
   let migrated = false;
   try {
     // Only migrate when the legacy file exists and the default session file does not.
-    await fs.access(HISTORY_FILE);
+    await fs.access(historyFile());
     try {
       await fs.access(defaultHistory);
     } catch {
-      const data = await fs.readFile(HISTORY_FILE, 'utf-8');
+      const data = await fs.readFile(historyFile(), 'utf-8');
       await fs.writeFile(defaultHistory, data, 'utf-8');
       migrated = true;
     }
@@ -225,5 +226,56 @@ export async function migrateLegacy(): Promise<void> {
   if (migrated) {
     // eslint-disable-next-line no-console
     console.log(`  📦 Migrated existing history into session "${DEFAULT_SESSION}".`);
+  }
+}
+
+/**
+ * One-time, per-project relocation: copy legacy CLIC state from the CWD into the
+ * global project root when that root is still fresh (no sessions.json there yet).
+ * Lossless — copies, never moves, so the CWD originals stay put. Runs before
+ * migrateLegacy(), which then operates on the relocated files under projectRoot().
+ * No-op under ephemeral mode and a silent no-op for fresh global installs.
+ */
+export async function migrateProjectState(cwd: string = process.cwd()): Promise<void> {
+  if (isEphemeral()) return; // privacy mode writes nothing
+
+  const root = projectRoot(cwd);
+
+  // Fresh-root guard: a sessions.json in the root means migration already ran.
+  try {
+    await fs.access(path.join(root, 'sessions.json'));
+    return;
+  } catch {
+    // root is fresh — proceed
+  }
+
+  const entries = ['chat_history.json', 'token_graph.json', 'sessions.json', 'sessions'];
+  let copied = false;
+  for (const entry of entries) {
+    const src = path.join(cwd, entry);
+    const dst = path.join(root, entry);
+    try {
+      await fs.access(src);
+    } catch {
+      continue; // no such legacy entry in CWD
+    }
+    try {
+      await fs.access(dst);
+      continue; // already in root — never overwrite
+    } catch {
+      // not yet in root
+    }
+    try {
+      await fs.mkdir(root, { recursive: true });
+      await fs.cp(src, dst, { recursive: true });
+      copied = true;
+    } catch {
+      // best-effort — a failed copy must not crash startup
+    }
+  }
+
+  if (copied) {
+    // eslint-disable-next-line no-console
+    console.log(`  📦 Migrated existing CLIC state into ${root}`);
   }
 }

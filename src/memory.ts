@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
-import { HISTORY_FILE } from './config.js';
+import { historyFile } from './config.js';
 import { isEphemeral } from './privacy.js';
 
 // ── OpenAI-compatible message types (HyperSpace AI) ───────
@@ -24,9 +24,10 @@ export type ChatMessage =
 
 let messages: ChatMessage[] = [];
 
-// Active history file — defaults to the legacy root path, but can be pointed at a
-// per-session file (sessions/<name>/chat_history.json) via setHistoryFile().
-let activeHistoryFile: string = HISTORY_FILE;
+// Active history file — lazily resolves to the per-project default (historyFile())
+// on first use unless pointed at a specific file via setHistoryFile(). Lazy so
+// importing this module never snapshots process.cwd() at load time.
+let activeHistoryFile: string | null = null;
 
 /** Point load/save at a specific history file (used by Named Sessions). */
 export function setHistoryFile(filePath: string): void {
@@ -35,7 +36,7 @@ export function setHistoryFile(filePath: string): void {
 
 /** The history file currently backing load/save. */
 export function getHistoryFile(): string {
-  return activeHistoryFile;
+  return activeHistoryFile ?? historyFile();
 }
 
 export function getMessages(): ChatMessage[] {
@@ -59,12 +60,13 @@ export function messageCount(): number {
 }
 
 export async function loadHistory(limit?: number): Promise<void> {
+  const file = getHistoryFile();
   try {
-    const data = await fs.readFile(activeHistoryFile, 'utf-8');
+    const data = await fs.readFile(file, 'utf-8');
     const all: ChatMessage[] = JSON.parse(data);
     messages = limit && all.length > limit ? all.slice(-limit) : all;
     const note = limit && all.length > limit ? ` (last ${limit} of ${all.length})` : '';
-    console.log(chalk.cyan(`  📂 Loaded ${messages.length} messages from ${activeHistoryFile}${note}`));
+    console.log(chalk.cyan(`  📂 Loaded ${messages.length} messages from ${file}${note}`));
   } catch {
     messages = [];
     console.log(chalk.cyan('  🆕 Starting fresh conversation.'));
@@ -74,9 +76,10 @@ export async function loadHistory(limit?: number): Promise<void> {
 
 export async function saveHistory(): Promise<void> {
   if (isEphemeral()) return; // privacy mode — keep history in memory only
+  const file = getHistoryFile();
   try {
-    await fs.mkdir(path.dirname(activeHistoryFile), { recursive: true });
-    await fs.writeFile(activeHistoryFile, JSON.stringify(messages, null, 2), 'utf-8');
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, JSON.stringify(messages, null, 2), 'utf-8');
   } catch {
     // Silently fail — history is not critical
   }

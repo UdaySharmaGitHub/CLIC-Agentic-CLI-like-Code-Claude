@@ -234,15 +234,20 @@ Markdown files in `roles based Workflow/` are auto-discovered at startup and pre
 
 ---
 
-## Generated Files (gitignored)
+## Generated Files (global per-project root)
 
-| File | Description |
+State is scoped **per project** under a global root — `~/.clic/projects/<basename>-<hash8>/` — keyed by the canonical project path (`fs.realpathSync(process.cwd())`). Running `clic` in a project reads/writes that project's root only, so the project folder stays clean. Override the root with `CLIC_HOME`. Credential precedence: **shell env > ./.env > ~/.clic/.env** (global fallback). On first run per project, any legacy state in the CWD is copied once into the project root (lossless; originals stay).
+
+| Path | Description |
 |---|---|
-| `chat_history.json` | Persisted conversation history (legacy root) |
-| `sessions/` | Per-session history tree |
-| `sessions.json` | Named-session index |
-| `token_graph.json` | Knowledge Graph of token usage |
-| `.env` | Local environment variables (API keys) |
+| `~/.clic/projects/<basename>-<hash8>/chat_history.json` | Legacy root history, adopted into `sessions/default/` on first run |
+| `~/.clic/projects/<basename>-<hash8>/sessions/` | Per-session history tree (`<name>/chat_history.json`) |
+| `~/.clic/projects/<basename>-<hash8>/sessions.json` | Named-session index |
+| `~/.clic/projects/<basename>-<hash8>/token_graph.json` | Knowledge Graph of token usage |
+| `~/.clic/.env` | Optional global credential fallback for a global install |
+| `.env` | Local (project) environment variables (API keys) |
 | `dist/` | Compiled production output |
 | `*.bak` | Backup files created by `modify_file` |
 | `exports/` | Conversation exports from `/export` |
+
+> `AGENT_HISTORY_FILE`, `AGENT_TOKEN_GRAPH_FILE`, `AGENT_SESSIONS_DIR`, and `AGENT_SESSIONS_INDEX_FILE` still override their respective paths verbatim (backward-compat + tests).
