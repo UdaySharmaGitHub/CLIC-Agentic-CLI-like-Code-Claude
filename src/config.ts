@@ -2,24 +2,85 @@
 //  Config — environment loading, constants, KB file loading
 // ─────────────────────────────────────────────────────────────────────────────
 
-import 'dotenv/config';
 import fs from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import dotenv from 'dotenv';
 import chalk from 'chalk';
+
+// ── Credential resolution (ordered, no-override) ────────────────────────────
+// Effective precedence: shell env > ./.env (project-local) > ~/.clic/.env (global).
+// dotenv does not override already-set keys, so the first loader to set a key wins.
+dotenv.config();                                        // ./.env   (project-local)
+dotenv.config({ path: path.join(clicHome(), '.env') }); // ~/.clic/.env (global fallback)
 
 export const DEFAULT_MODEL = 'gpt-4o';
 export const DEFAULT_MAX_STEPS = 20;
-export const HISTORY_FILE = process.env.AGENT_HISTORY_FILE || 'chat_history.json';
-export const TOKEN_GRAPH_FILE = process.env.AGENT_TOKEN_GRAPH_FILE || 'token_graph.json';
-
-// ── Named Sessions ──────────────────────────────────────────────────────────
-export const SESSIONS_DIR = process.env.AGENT_SESSIONS_DIR || 'sessions';
-export const SESSIONS_INDEX_FILE = process.env.AGENT_SESSIONS_INDEX_FILE || 'sessions.json';
 export const DEFAULT_SESSION = 'default';
 
-/** Per-session chat history file path, e.g. sessions/<name>/chat_history.json */
+// ── Global per-project storage root (~/.clic/projects/<basename>-<hash8>) ────
+
+/** Global CLIC root. Overridable via CLIC_HOME (tests + power users). */
+export function clicHome(): string {
+  return process.env.CLIC_HOME || path.join(os.homedir(), '.clic');
+}
+
+/** Sanitize a path basename to a short, filesystem-safe prefix. */
+function sanitizeBasename(name: string): string {
+  const cleaned = name
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const capped = cleaned.slice(0, 40).replace(/-$/, '');
+  return capped || 'project';
+}
+
+/**
+ * Per-project directory name: `<basename>-<hash8>`, where hash8 is the first 8
+ * hex chars of sha256(canonicalPath). The hash covers the full canonical path,
+ * so two same-named folders in different locations never collide.
+ */
+export function projectDirName(cwd: string = process.cwd()): string {
+  let canonical: string;
+  try {
+    canonical = realpathSync(cwd);
+  } catch {
+    canonical = path.resolve(cwd); // dir deleted/unreadable — defensive, never crash
+  }
+  const hash8 = crypto.createHash('sha256').update(canonical).digest('hex').slice(0, 8);
+  return `${sanitizeBasename(path.basename(canonical))}-${hash8}`;
+}
+
+/** Absolute per-project storage root under the global CLIC home. */
+export function projectRoot(cwd: string = process.cwd()): string {
+  return path.join(clicHome(), 'projects', projectDirName(cwd));
+}
+
+// ── Storage path resolvers ───────────────────────────────────────────────────
+// Each honors its AGENT_* env override verbatim (backward-compat + tests);
+// otherwise resolves under projectRoot().
+
+export function historyFile(): string {
+  return process.env.AGENT_HISTORY_FILE || path.join(projectRoot(), 'chat_history.json');
+}
+
+export function tokenGraphFile(): string {
+  return process.env.AGENT_TOKEN_GRAPH_FILE || path.join(projectRoot(), 'token_graph.json');
+}
+
+export function sessionsDir(): string {
+  return process.env.AGENT_SESSIONS_DIR || path.join(projectRoot(), 'sessions');
+}
+
+export function sessionsIndexFile(): string {
+  return process.env.AGENT_SESSIONS_INDEX_FILE || path.join(projectRoot(), 'sessions.json');
+}
+
+/** Per-session chat history file path, e.g. <projectRoot>/sessions/<name>/chat_history.json */
 export function sessionHistoryPath(name: string): string {
-  return path.join(SESSIONS_DIR, name, 'chat_history.json');
+  return path.join(sessionsDir(), name, 'chat_history.json');
 }
 
 export interface AppConfig {

@@ -71,6 +71,7 @@ jobs:
           - test:terminal
           - test:web-search
           - test:ui
+          - test:project-storage
 
     steps:
       - name: Check out repository

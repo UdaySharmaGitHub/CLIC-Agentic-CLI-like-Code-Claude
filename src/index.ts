@@ -15,7 +15,7 @@ import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
 import { startWatcher, stopWatcher, getRecentlyModified } from './watcher.js';
-import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, TOKEN_GRAPH_FILE, DEFAULT_SESSION, sessionHistoryPath } from './config.js';
+import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, tokenGraphFile, DEFAULT_SESSION, sessionHistoryPath } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage, setHistoryFile, clearMessages } from './memory.js';
 import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
 import { setEphemeral } from './privacy.js';
@@ -24,6 +24,7 @@ import { disableTerminals } from './tools/runCommand.js';
 import {
   loadIndex,
   migrateLegacy,
+  migrateProjectState,
   getActive,
   hasSession,
   ensureSession,
@@ -227,7 +228,9 @@ async function main(prompt: string | undefined, opts: {
   let client = createClient(model);
 
   // ── Load or initialise history + Knowledge Graph ──────────────────────────
-  await loadGraph(TOKEN_GRAPH_FILE);
+  // Relocate any legacy CWD state into the per-project global root before reads.
+  await migrateProjectState();
+  await loadGraph(tokenGraphFile());
 
   // Resolve the active named session (migrate legacy history on first run).
   await loadIndex();
@@ -294,7 +297,7 @@ async function main(prompt: string | undefined, opts: {
       model, maxSteps, confirm: singleConfirmFn, showRaw, sessionId,
     });
     await saveHistory();
-    await saveGraph(TOKEN_GRAPH_FILE);
+    await saveGraph(tokenGraphFile());
     stopWatcher();
     await terminalManager.killAll();
     return;
@@ -315,7 +318,7 @@ async function main(prompt: string | undefined, opts: {
     stopWatcher();
     await terminalManager.killAll();
     await saveHistory();
-    await saveGraph(TOKEN_GRAPH_FILE);
+    await saveGraph(tokenGraphFile());
     process.exit(0);
   });
 
@@ -427,7 +430,7 @@ async function main(prompt: string | undefined, opts: {
         stopWatcher();
         await terminalManager.killAll();
         await saveHistory();
-        await saveGraph(TOKEN_GRAPH_FILE);
+        await saveGraph(tokenGraphFile());
         break;
       }
 
@@ -497,7 +500,7 @@ async function main(prompt: string | undefined, opts: {
           agentRunning = false;
           process.removeListener('SIGINT', retryOnSIGINT);
         }
-        await saveGraph(TOKEN_GRAPH_FILE);
+        await saveGraph(tokenGraphFile());
         console.log();
       }
       await saveHistory();
@@ -544,7 +547,7 @@ async function main(prompt: string | undefined, opts: {
     }
 
     await saveHistory();
-    await saveGraph(TOKEN_GRAPH_FILE);
+    await saveGraph(tokenGraphFile());
     console.log();
   }
 }

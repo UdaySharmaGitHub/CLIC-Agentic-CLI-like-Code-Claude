@@ -183,15 +183,18 @@ Markdown files placed in `roles based Workflow/` are auto-discovered at startup 
 - **Persistent terminals / `--no-terminals`:** by default `run_command` routes through a `TerminalManager` singleton (`src/terminal.ts`) backed by node-pty, so shell state (cwd, env, venv) persists across calls on the implicit `main` terminal. Pass `--no-terminals` to call `disableTerminals()` (from `src/tools/runCommand.ts`) and revert to the legacy one-shot `execa` path — useful when node-pty prebuilds are unavailable. On every exit path `terminalManager.killAll()` is called alongside `stopWatcher()` to tear down all PTY processes.
 - **Mid-session `/privacy` command:** `/privacy` opens an arrow-key picker (via the Ink-based `selectPrompt`, mirroring `/model` and `/role`) that shows the current mode (`initialValue`) and toggles ephemeral mode without a restart. It calls `setEphemeral()` on the `src/privacy.ts` singleton directly — no `CommandContext` field or `index.ts` handler branch. The pure `privacyTransition(from, to)` helper (exported from `src/commands/privacy.ts`, unit-tested in `test/privacy.test.ts`) computes the warning lines. Because protection is only partial mid-session, transitions warn loudly: enabling does **not** erase turns already written this session; disabling writes the **full in-memory history — including turns recorded while privacy was ON — on the next save**. `/status` shows the current privacy state.
 
-### Generated files (gitignored)
+### Generated files (global per-project root)
 
-| File | Description |
+State is scoped per project under `~/.clic/projects/<basename>-<hash8>/`, keyed by the canonical project path (`fs.realpathSync(process.cwd())`). The project folder stays clean. `CLIC_HOME` overrides the root. Credential precedence: **shell env > ./.env > ~/.clic/.env**. On first run per project, legacy CWD state is copied once into the project root (`migrateProjectState()` — lossless; originals remain). The `AGENT_*` env overrides still win verbatim for their respective paths.
+
+| Path (under `~/.clic/projects/<basename>-<hash8>/`) | Description |
 |---|---|
-| `chat_history.json` | Persisted `ChatMessage[]` conversation history (legacy root; migrated on first run) |
+| `chat_history.json` | Legacy root `ChatMessage[]` history; adopted into `sessions/default/` by `migrateLegacy()` |
 | `sessions/` | Per-session directory tree — each `sessions/<name>/chat_history.json` holds one session's history |
-| `sessions.json` | Named-session index (`{ active, sessions: SessionMeta[] }`) — tracks active session + all session names |
+| `sessions.json` | Named-session index (`{ active, sessions: SessionMeta[] }`) |
 | `token_graph.json` | Knowledge Graph of token usage across all sessions |
-| `.env` | Local environment variables (API keys) |
+| `~/.clic/.env` | Optional global credential fallback (global install) |
+| `.env` | Local (project) environment variables (API keys) |
 | `dist/` | Compiled production output |
 | `*.bak` | Backup files created by the `modify_file` tool |
 | `exports/` | Conversation exports written by `/export` — `clic-export-<date>.[md|json|html]` |

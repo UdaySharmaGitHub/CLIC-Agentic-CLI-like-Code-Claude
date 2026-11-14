@@ -16,6 +16,7 @@ import { runExportTests } from './export.test.js';
 import { runTerminalTests } from './terminal.test.js';
 import { runWebSearchTests } from './web-search.test.js';
 import { runUiTests } from './ui.test.js';
+import { runProjectStorageTests } from './project-storage.test.js';
 
 /**
  * Banner for test output
@@ -43,9 +44,10 @@ function printSummary(
   terminal: { passed: number; failed: number },
   webSearch: { passed: number; failed: number },
   ui: { passed: number; failed: number },
+  projectStorage: { passed: number; failed: number },
 ) {
-  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed + privacy.passed + exportResult.passed + terminal.passed + webSearch.passed + ui.passed;
-  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed;
+  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed + privacy.passed + exportResult.passed + terminal.passed + webSearch.passed + ui.passed + projectStorage.passed;
+  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed;
   const totalTests = totalPassed + totalFailed;
 
   console.log(`
@@ -62,6 +64,7 @@ function printSummary(
 ║  Terminal Module Tests        : ${terminal.passed.toString().padEnd(2)} passed, ${terminal.failed.toString().padEnd(2)} failed                ║
 ║  Web Search Tool Tests        : ${webSearch.passed.toString().padEnd(2)} passed, ${webSearch.failed.toString().padEnd(2)} failed                ║
 ║  UI Component Tests           : ${ui.passed.toString().padEnd(2)} passed, ${ui.failed.toString().padEnd(2)} failed                ║
+║  Project-Scoped Storage Tests : ${projectStorage.passed.toString().padEnd(2)} passed, ${projectStorage.failed.toString().padEnd(2)} failed                ║
 ║                                                                            ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
 ║  TOTAL                        : ${totalPassed.toString().padEnd(2)} passed, ${totalFailed.toString().padEnd(2)} failed (${totalTests} tests)           ║
@@ -97,12 +100,13 @@ async function runAllTests() {
     const terminal = await runTerminalTests();
     const webSearch = await runWebSearchTests();
     const ui = await runUiTests();
+    const projectStorage = await runProjectStorageTests();
 
     // Print summary
-    printSummary(validationGate, toolSchemas, edgeCases, watcher, privacy, exportResult, terminal, webSearch, ui);
+    printSummary(validationGate, toolSchemas, edgeCases, watcher, privacy, exportResult, terminal, webSearch, ui, projectStorage);
 
     // Exit with appropriate code
-    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed;
+    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed;
     process.exit(totalFailed > 0 ? 1 : 0);
   } catch (err) {
     console.error('❌ Test runner failed:', err);
