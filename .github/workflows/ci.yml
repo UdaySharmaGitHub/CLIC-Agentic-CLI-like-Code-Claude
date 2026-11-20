@@ -73,6 +73,7 @@ jobs:
           - test:ui
           - test:project-storage
           - test:setup-wizard
+          - test:ping
 
     steps:
       - name: Check out repository

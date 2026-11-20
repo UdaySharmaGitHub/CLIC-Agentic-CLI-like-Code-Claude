@@ -33,7 +33,8 @@
     "test:web-search": "tsx test/web-search.test.ts",
     "test:ui": "tsx test/ui.test.ts",
     "test:project-storage": "tsx test/project-storage.test.ts",
-    "test:setup-wizard": "tsx test/setup-wizard.test.ts"
+    "test:setup-wizard": "tsx test/setup-wizard.test.ts",
+    "test:ping": "tsx test/ping.test.ts"
   },
   "engines": {
     "node": ">=20",

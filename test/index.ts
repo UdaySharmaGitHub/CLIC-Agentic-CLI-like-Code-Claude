@@ -18,6 +18,7 @@ import { runWebSearchTests } from './web-search.test.js';
 import { runUiTests } from './ui.test.js';
 import { runProjectStorageTests } from './project-storage.test.js';
 import { runSetupWizardTests } from './setup-wizard.test.js';
+import { runPingTests } from './ping.test.js';
 
 /**
  * Banner for test output
@@ -47,9 +48,10 @@ function printSummary(
   ui: { passed: number; failed: number },
   projectStorage: { passed: number; failed: number },
   setupWizard: { passed: number; failed: number },
+  ping: { passed: number; failed: number },
 ) {
-  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed + privacy.passed + exportResult.passed + terminal.passed + webSearch.passed + ui.passed + projectStorage.passed + setupWizard.passed;
-  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed + setupWizard.failed;
+  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed + privacy.passed + exportResult.passed + terminal.passed + webSearch.passed + ui.passed + projectStorage.passed + setupWizard.passed + ping.passed;
+  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed + setupWizard.failed + ping.failed;
   const totalTests = totalPassed + totalFailed;
 
   console.log(`
@@ -68,6 +70,7 @@ function printSummary(
 ║  UI Component Tests           : ${ui.passed.toString().padEnd(2)} passed, ${ui.failed.toString().padEnd(2)} failed                ║
 ║  Project-Scoped Storage Tests : ${projectStorage.passed.toString().padEnd(2)} passed, ${projectStorage.failed.toString().padEnd(2)} failed                ║
 ║  Setup Wizard Tests           : ${setupWizard.passed.toString().padEnd(2)} passed, ${setupWizard.failed.toString().padEnd(2)} failed                ║
+║  Ping Health-Check Tests      : ${ping.passed.toString().padEnd(2)} passed, ${ping.failed.toString().padEnd(2)} failed                ║
 ║                                                                            ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
 ║  TOTAL                        : ${totalPassed.toString().padEnd(2)} passed, ${totalFailed.toString().padEnd(2)} failed (${totalTests} tests)           ║
@@ -105,12 +108,13 @@ async function runAllTests() {
     const ui = await runUiTests();
     const projectStorage = await runProjectStorageTests();
     const setupWizard = await runSetupWizardTests();
+    const ping = await runPingTests();
 
     // Print summary
-    printSummary(validationGate, toolSchemas, edgeCases, watcher, privacy, exportResult, terminal, webSearch, ui, projectStorage, setupWizard);
+    printSummary(validationGate, toolSchemas, edgeCases, watcher, privacy, exportResult, terminal, webSearch, ui, projectStorage, setupWizard, ping);
 
     // Exit with appropriate code
-    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed + setupWizard.failed;
+    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed + setupWizard.failed + ping.failed;
     process.exit(totalFailed > 0 ? 1 : 0);
   } catch (err) {
     console.error('❌ Test runner failed:', err);
