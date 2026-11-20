@@ -15,7 +15,7 @@ import { runAgentTurn } from './agent.js';
 import { createClient, streamMessage } from './openai.js';
 import { buildSystemPrompt } from './prompts.js';
 import { startWatcher, stopWatcher, getRecentlyModified } from './watcher.js';
-import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, tokenGraphFile, DEFAULT_SESSION, sessionHistoryPath } from './config.js';
+import { DEFAULT_MODEL, DEFAULT_MAX_STEPS, loadKnowledgeBase, tokenGraphFile, DEFAULT_SESSION, sessionHistoryPath, globalEnvFile, saveCredentials } from './config.js';
 import { getMessages, pushMessage, loadHistory, saveHistory, trimToLastUserMessage, setHistoryFile, clearMessages } from './memory.js';
 import { loadGraph, saveGraph, addNode } from './knowledgeGraph.js';
 import { setEphemeral } from './privacy.js';
@@ -99,6 +99,8 @@ async function main(prompt: string | undefined, opts: {
 
   // API Key check
   let apiKey = process.env.API_KEY || '';
+  const promptedCredentials: Record<string, string> = {};
+
   if (!apiKey) {
     if (!process.stdout.isTTY) {
       console.log(chalk.red('  ❌ No API_KEY in environment and no interactive terminal to prompt for one.'));
@@ -116,16 +118,44 @@ async function main(prompt: string | undefined, opts: {
     }
     apiKey = keyInput;
     process.env.API_KEY = apiKey;
+    promptedCredentials['API_KEY'] = apiKey;
   } else {
     console.log(chalk.green('  ✅ API_KEY loaded from environment.'));
   }
 
-  // Base URL check
-  const isCustomBaseUrl = !!process.env.BASE_URL?.trim();
-  console.log(isCustomBaseUrl
-    ? chalk.green(`  ✅ Base URL: ${chalk.white('Loaded')}`)
-    : chalk.yellow(`  ⚠️  Base URL: ${chalk.white('Not set — using default')}`)
-  );
+  // Base URL check — prompt when not set so it can be persisted alongside API_KEY
+  const existingBaseUrl = process.env.BASE_URL?.trim() || '';
+  if (!existingBaseUrl) {
+    if (process.stdout.isTTY) {
+      const urlInput = await textPrompt({
+        message: 'Base URL (leave blank for OpenAI default https://api.openai.com/v1):',
+        validate: () => undefined,
+      });
+      if (urlInput && urlInput !== CANCEL && urlInput.trim()) {
+        process.env.BASE_URL = urlInput.trim();
+        promptedCredentials['BASE_URL'] = urlInput.trim();
+        console.log(chalk.green(`  ✅ Base URL: ${chalk.white(urlInput.trim())}`));
+      } else {
+        console.log(chalk.yellow(`  ⚠️  Base URL: ${chalk.white('Not set — using default')}`));
+      }
+    } else {
+      console.log(chalk.yellow(`  ⚠️  Base URL: ${chalk.white('Not set — using default')}`));
+    }
+  } else {
+    console.log(chalk.green(`  ✅ Base URL: ${chalk.white('Loaded')}`));
+  }
+
+  // Offer to persist newly entered credentials to ~/.clic/.env
+  if (Object.keys(promptedCredentials).length > 0 && process.stdout.isTTY) {
+    const globalEnv = globalEnvFile();
+    const save = await confirmPrompt({
+      message: `Save credentials to ${globalEnv} for all future sessions?`,
+    });
+    if (save) {
+      await saveCredentials(promptedCredentials);
+      console.log(chalk.green(`  ✅ Saved to ${globalEnv} — you won't be prompted again.`));
+    }
+  }
 
   await loadPricing(); // Preload pricing data for the models
    

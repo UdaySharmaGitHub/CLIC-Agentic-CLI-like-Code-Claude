@@ -284,7 +284,7 @@ cd ~/project-b && clic "/session"   # completely separate session list
 - **Token Knowledge Graph** (`src/knowledgeGraph.ts`) — `token_graph.json` is stored at `tokenGraphFile()` inside `projectRoot()`; per-project token spend is automatically isolated.
 - **Privacy / `--no-history`** (`src/privacy.ts`) — `isEphemeral()` is checked by `migrateProjectState()` and all `save*` functions; ephemeral runs are completely isolated from the project root on disk.
 - **Workspace File Watcher** (`src/watcher.ts`) — watches the project CWD for file changes; complements project scoping by tracking external edits per project.
-- **Setup Wizard** (`src/index.ts`) — currently prompts for `API_KEY` in-session only (sets `process.env`, not persisted); a future improvement will write to `~/.clic/.env` on first run (tracked as a separate issue).
+- **Setup Wizard credential persistence** (`src/index.ts`, `src/config.ts`) — on first run the wizard prompts for `API_KEY` and `BASE_URL` and offers to save them to `~/.clic/.env` via `saveCredentials()`. On subsequent runs the credentials are loaded automatically and the wizard skips the prompt.
 
 ---
 
@@ -300,23 +300,3 @@ CLIC deliberately uses `.env` (via `dotenv`) rather than a `settings.json`. This
 **This choice is stable.** Don't migrate to `settings.json` as a drive-by refactor — if reconsidered, it should be a dedicated issue with a migration path for existing users.
 
 > **Future issue (tracked separately):** Converting `.env` to `settings.json` for improved usability — e.g., structured config, comments, editor tooling support — is a valid improvement but out of scope for this PR.
-
-### Future issue: Setup wizard should persist credentials to `~/.clic/.env`
-
-The setup wizard currently prompts for `API_KEY` and `BASE_URL` on first run but only writes them to `process.env` for the current session. On the next run it asks again.
-
-The intended improvement is:
-
-```
-clic (first run, no API key found in env or any .env)
-  → prompts for API_KEY and BASE_URL
-  → saves to ~/.clic/.env          ← global, works from every folder forever
-  → never prompts again
-```
-
-Scope for the separate issue:
-- Where to save — global `~/.clic/.env` vs local `./.env`, or offer a choice
-- Whether to ask the user which location to save to
-- What to do if `~/.clic/.env` already exists (append vs merge vs skip)
-
-This is intentionally not part of the project-scoped storage PR — it is a distinct UX feature with its own edge cases and should be tracked separately.

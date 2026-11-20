@@ -58,6 +58,47 @@ export function projectRoot(cwd: string = process.cwd()): string {
   return path.join(clicHome(), 'projects', projectDirName(cwd));
 }
 
+/** Global credential file: ~/.clic/.env (or $CLIC_HOME/.env). */
+export function globalEnvFile(): string {
+  return path.join(clicHome(), '.env');
+}
+
+/**
+ * Write credentials to a .env file — only keys not already present.
+ * Creates the directory and file if needed. No-op when `credentials` is empty.
+ */
+export async function saveCredentials(
+  credentials: Record<string, string>,
+  targetFile: string = globalEnvFile(),
+): Promise<void> {
+  if (Object.keys(credentials).length === 0) return;
+
+  await fs.mkdir(path.dirname(targetFile), { recursive: true });
+
+  let existing = '';
+  try {
+    existing = await fs.readFile(targetFile, 'utf-8');
+  } catch {
+    // File doesn't exist yet — start fresh
+  }
+
+  // Collect keys already present (KEY= at line start)
+  const existingKeys = new Set<string>();
+  for (const line of existing.split('\n')) {
+    const match = line.match(/^([A-Z_][A-Z0-9_]*)=/);
+    if (match) existingKeys.add(match[1]);
+  }
+
+  const linesToAppend = Object.entries(credentials)
+    .filter(([key]) => !existingKeys.has(key))
+    .map(([key, value]) => `${key}=${value}`);
+
+  if (linesToAppend.length === 0) return;
+
+  const prefix = existing && !existing.endsWith('\n') ? existing + '\n' : existing;
+  await fs.writeFile(targetFile, prefix + linesToAppend.join('\n') + '\n', 'utf-8');
+}
+
 // ── Storage path resolvers ───────────────────────────────────────────────────
 // Each honors its AGENT_* env override verbatim (backward-compat + tests);
 // otherwise resolves under projectRoot().
