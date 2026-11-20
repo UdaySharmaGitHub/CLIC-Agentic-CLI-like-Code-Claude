@@ -17,6 +17,7 @@ import { runTerminalTests } from './terminal.test.js';
 import { runWebSearchTests } from './web-search.test.js';
 import { runUiTests } from './ui.test.js';
 import { runProjectStorageTests } from './project-storage.test.js';
+import { runSetupWizardTests } from './setup-wizard.test.js';
 
 /**
  * Banner for test output
@@ -45,9 +46,10 @@ function printSummary(
   webSearch: { passed: number; failed: number },
   ui: { passed: number; failed: number },
   projectStorage: { passed: number; failed: number },
+  setupWizard: { passed: number; failed: number },
 ) {
-  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed + privacy.passed + exportResult.passed + terminal.passed + webSearch.passed + ui.passed + projectStorage.passed;
-  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed;
+  const totalPassed = validationGate.passed + toolSchemas.passed + edgeCases.passed + watcher.passed + privacy.passed + exportResult.passed + terminal.passed + webSearch.passed + ui.passed + projectStorage.passed + setupWizard.passed;
+  const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed + setupWizard.failed;
   const totalTests = totalPassed + totalFailed;
 
   console.log(`
@@ -65,6 +67,7 @@ function printSummary(
 ║  Web Search Tool Tests        : ${webSearch.passed.toString().padEnd(2)} passed, ${webSearch.failed.toString().padEnd(2)} failed                ║
 ║  UI Component Tests           : ${ui.passed.toString().padEnd(2)} passed, ${ui.failed.toString().padEnd(2)} failed                ║
 ║  Project-Scoped Storage Tests : ${projectStorage.passed.toString().padEnd(2)} passed, ${projectStorage.failed.toString().padEnd(2)} failed                ║
+║  Setup Wizard Tests           : ${setupWizard.passed.toString().padEnd(2)} passed, ${setupWizard.failed.toString().padEnd(2)} failed                ║
 ║                                                                            ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
 ║  TOTAL                        : ${totalPassed.toString().padEnd(2)} passed, ${totalFailed.toString().padEnd(2)} failed (${totalTests} tests)           ║
@@ -101,12 +104,13 @@ async function runAllTests() {
     const webSearch = await runWebSearchTests();
     const ui = await runUiTests();
     const projectStorage = await runProjectStorageTests();
+    const setupWizard = await runSetupWizardTests();
 
     // Print summary
-    printSummary(validationGate, toolSchemas, edgeCases, watcher, privacy, exportResult, terminal, webSearch, ui, projectStorage);
+    printSummary(validationGate, toolSchemas, edgeCases, watcher, privacy, exportResult, terminal, webSearch, ui, projectStorage, setupWizard);
 
     // Exit with appropriate code
-    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed;
+    const totalFailed = validationGate.failed + toolSchemas.failed + edgeCases.failed + watcher.failed + privacy.failed + exportResult.failed + terminal.failed + webSearch.failed + ui.failed + projectStorage.failed + setupWizard.failed;
     process.exit(totalFailed > 0 ? 1 : 0);
   } catch (err) {
     console.error('❌ Test runner failed:', err);
