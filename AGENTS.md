@@ -148,7 +148,7 @@ User input (REPL or single-turn)
 | `src/knowledgeGraph.ts` | Token-tracking Knowledge Graph (session → turn → model/tools/usage); persisted to `token_graph.json` |
 | `src/pricing.ts` | Real-time model pricing via LiteLLM proxy `/model/info`; used by `/tokens` to show estimated USD cost |
 | `src/prompts.ts` | Builds the system prompt with live system context; injects `Workspace File Activity` block and optional knowledge base |
-| `src/config.ts` | Loads `.env` via dotenv; exports all constants, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
+| `src/config.ts` | Loads `.env` via dotenv (project-local → `~/.clic/.env` global fallback); per-project path helpers: `clicHome()`, `projectDirName()`, `projectRoot()`, `globalEnvFile()`, `saveCredentials()`; storage resolvers: `historyFile()`, `tokenGraphFile()`, `sessionsDir()`, `sessionsIndexFile()`, `sessionHistoryPath()`; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `DEFAULT_SESSION`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `TERMINAL_SHELL`, `TERMINAL_MAX`, `TERMINAL_CMD_TIMEOUT_MS`, `TERMINAL_BUFFER_LINES`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | `src/ui/index.ts` | UI adapter: Ink-based rendering on TTY, chalk fallback on non-TTY; exports `printBanner`, `printHelp`, `printStatus`, `printStepHeader`, `printSeparator`, `promptPrintSeperator`, `printToolHeader`, `printToolSuccess`, `printToolError`, `printToolBlocked`, `printRejected`, `printDimOutput`, `printContextBar`, `selectPrompt`, `textPrompt`, `confirmPrompt`, `startSpinner` |
 | `src/ui/fallback.ts` | Synchronous chalk implementations used when `process.stdout.isTTY` is false (pipes, CI) |
 | `src/ui/helpers.ts` | Pure UI helpers: `actionLabel`, `sessionNameBadge`, `CANCEL` sentinel, `SelectItem` type, `selectInitialIndex` |
@@ -191,7 +191,7 @@ Each tool is a self-contained module exporting:
 
 Each slash command exports `command: SlashCommand` with `name`, optional `aliases`, `description`, `usage`, and `execute(ctx, args)`.
 
-**Registered commands:** `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`, `/session` (alias `/s`), `/privacy`, `/export`
+**Registered commands:** `/compact`, `/model` (alias `/m`), `/role`, `/undo`, `/retry` (alias `/r`), `/tokens`, `/status`, `/history`, `/clear`, `/raw`, `/help`, `/exit`, `/session` (alias `/s`), `/privacy`, `/export`, `/ping`
 
 **`CommandAction`** can be: `continue`, `exit`, `retry`, or `update` (with a `Partial<CommandContext>` payload).
 

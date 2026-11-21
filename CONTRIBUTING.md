@@ -62,6 +62,18 @@ pnpm dev
 
 TypeScript is checked with `pnpm typecheck`, and the production bundle is validated with `pnpm build`.
 
+### Global Installation (optional)
+
+Install CLIC once and use it from any project directory by just typing `clic`:
+
+```bash
+pnpm install:global
+```
+
+On first run in any directory, the setup wizard will prompt for your `API_KEY` and `BASE_URL` and offer to save them to `~/.clic/.env`. After that one-time setup, credentials are loaded automatically — no `.env` needed in each project. All state is scoped per project under `~/.clic/projects/` so your project folders stay clean.
+
+> **Manual credential setup:** `echo 'API_KEY=sk-...' >> ~/.clic/.env`
+
 ---
 
 ## How to Contribute
@@ -189,6 +201,11 @@ pnpm test:watcher               # Watcher pure-helper tests
 pnpm test:privacy               # Privacy / ephemeral-mode tests
 pnpm test:export                # Conversation export formatter tests
 pnpm test:terminal              # Terminal module tests
+pnpm test:web-search            # Web search integration tests
+pnpm test:ui                    # UI component and rendering tests
+pnpm test:project-storage       # Project-scoped global storage tests
+pnpm test:setup-wizard          # Setup wizard credential persistence tests
+pnpm test:ping                  # /ping health check command tests
 pnpm typecheck                  # Strict TypeScript check
 pnpm build                      # Production bundle check
 ```

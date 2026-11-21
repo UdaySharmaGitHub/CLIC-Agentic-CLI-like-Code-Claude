@@ -398,11 +398,11 @@ Registered tools:
 | **`pricing.ts`** | Real-time pricing from LiteLLM proxy `/model/info` — `loadPricing()` (called at startup), `getCost()`, `getPricing()`, `formatCost()`, `isPricingLoaded()`. Used by `/tokens` to compute estimated USD spend |
 | **`prompts.ts`** | Builds the system prompt with live system context (OS, user, CWD, date) + optional `Workspace File Activity` block (from `getRecentlyModified()`) + optional knowledge base |
 | **`memory.ts`** | Manages `ChatMessage[]` in memory (OpenAI format) — `setHistoryFile()`, `pushMessage()`, `popMessage()`, `getMessages()`, `clearMessages()`, `messageCount()`, `loadHistory(limit?)`, `saveHistory()`, `trimToLastUserMessage()` |
-| **`session.ts`** | Named-session lifecycle — `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `setActive()`, `hasSession()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `sessionNodeId()`. Persists `sessions.json` + per-session `sessions/<name>/` directories |
+| **`session.ts`** | Named-session lifecycle — `loadIndex()`, `saveIndex()`, `listSessions()`, `getActive()`, `setActive()`, `hasSession()`, `ensureSession()`, `createSession()`, `renameSession()`, `deleteSession()`, `migrateLegacy()`, `migrateProjectState()`, `sessionNodeId()`. Persists `sessions.json` + per-session `sessions/<name>/` directories |
 | **`watcher.ts`** | Singleton chokidar watcher — `startWatcher(cwd)`, `stopWatcher()`, `markRead(filepath)`, `getStalenessNote(filepath)`, `getRecentlyModified(windowMs?)`. Also exports pure helpers for testing: `formatAgo()`, `computeStalenessNote()`, `selectRecent()` |
 | **`terminal.ts`** | `TerminalManager` singleton backed by node-pty — pool of up to 8 persistent PTY shells. Commands on the same terminal serialise via a per-terminal promise queue; different terminals run in parallel. Sentinel detection captures exit codes. Exports pure helpers: `stripAnsi()`, `RingBuffer`, `assertValidTerminalName()`, and singleton `terminalManager` |
 | **`privacy.ts`** | Dependency-free singleton for ephemeral-session mode — `setEphemeral(value)`, `isEphemeral()`. Imported by `memory.ts`, `knowledgeGraph.ts`, and `session.ts` to skip all disk writes when enabled |
-| **`config.ts`** | Loads `.env` via dotenv; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `HISTORY_FILE`, `TOKEN_GRAPH_FILE`, `SESSIONS_DIR`, `SESSIONS_INDEX_FILE`, `DEFAULT_SESSION`, `sessionHistoryPath()`, `TERMINAL_SHELL`, `TERMINAL_MAX`, `TERMINAL_CMD_TIMEOUT_MS`, `TERMINAL_BUFFER_LINES`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
+| **`config.ts`** | Loads `.env` via dotenv (project-local → `~/.clic/.env` global fallback); per-project path helpers: `clicHome()`, `projectDirName()`, `projectRoot()`, `globalEnvFile()`, `saveCredentials()`; storage resolvers: `historyFile()`, `tokenGraphFile()`, `sessionsDir()`, `sessionsIndexFile()`, `sessionHistoryPath()`; exports `DEFAULT_MODEL`, `DEFAULT_MAX_STEPS`, `DEFAULT_SESSION`, `TERMINAL_SHELL`, `TERMINAL_MAX`, `TERMINAL_CMD_TIMEOUT_MS`, `TERMINAL_BUFFER_LINES`, `MODEL_CONTEXT_LIMITS`, `DEFAULT_CONTEXT_LIMIT`, `CONTEXT_GUARD_THRESHOLD`, `HISTORY_LOAD_LIMIT`, `AppConfig` interface, `loadKnowledgeBase()`, `getContextLimit()` |
 | **`safety.ts`** | `isCommandSafe()` checks against blocked patterns, `isPathSafe()` checks against protected paths |
 | **`ui/index.ts`** | UI adapter — Ink-based rendering on TTY, synchronous chalk fallback on non-TTY. Exports all `print*` functions plus `selectPrompt`, `textPrompt`, `confirmPrompt`, `startSpinner` (Ink spinner mounted while LLM thinks, torn down on first token) |
 | **`ui/fallback.ts`** | Synchronous chalk implementations used when `process.stdout.isTTY` is false (pipes, CI) |
@@ -446,7 +446,31 @@ API_KEY=sk-...
 BASE_URL=https://api.openai.com/v1
 ```
 
-If you don't set `API_KEY` in `.env`, the setup wizard will prompt you interactively.
+If you don't set `API_KEY` in `.env`, the setup wizard will prompt you interactively and offer to save your credentials to `~/.clic/.env` — a global credential file shared across all projects.
+
+### Global Installation
+
+Install CLIC once and run it from any project directory:
+
+```bash
+# Build and install globally
+pnpm install:global
+```
+
+On first run in any project, the setup wizard will prompt for your `API_KEY` and `BASE_URL` and offer to save them to `~/.clic/.env`. After that one-time setup, just type:
+
+```bash
+clic
+```
+
+from any directory. No `.env` file needed in each project — credentials are loaded automatically from `~/.clic/.env`. All state (chat history, sessions, token graph) is scoped per project under `~/.clic/projects/<project-name>-<hash>/`, keeping your project folders clean.
+
+> **Manual credential setup:** You can also set credentials once globally without the wizard:
+> ```bash
+> mkdir -p ~/.clic
+> echo 'API_KEY=sk-...' >> ~/.clic/.env
+> echo 'BASE_URL=https://api.openai.com/v1' >> ~/.clic/.env
+> ```
 
 ### Run
 
@@ -552,6 +576,7 @@ pnpm dev -- --model gemini-2.5-pro
 | `/session [new\|switch\|rename\|delete] [name]` | `/s` | Manage named sessions — create, switch, rename, or delete |
 | `/privacy` | — | Toggle ephemeral mode mid-session (enable: suppresses future disk writes; disable: re-enables writes and flushes full in-memory history on next save) |
 | `/export [markdown\|json\|html]` | — | Export the active conversation to `exports/clic-export-<date>.[md\|json\|html]` (current window or full history) |
+| `/ping` | — | Check API endpoint reachability and measure round-trip latency |
 | `/undo` | — | Remove the last user + assistant exchange from history |
 | `/retry` | `/r` | Regenerate the last response (re-runs last user message) |
 | `/tokens` | — | Show actual token usage (from Knowledge Graph) + context size estimate |
@@ -813,13 +838,15 @@ Every tool action (read, write, command, search, etc.) requires explicit `y/n` c
 
 | Variable | Required | Description |
 |---|---|---|
-| `API_KEY` | Yes* | Your OpenAI or compatible API key (prompted interactively if missing) |
-| `BASE_URL` | No | OpenAI-compatible endpoint base URL (default: `https://api.openai.com/v1`) |
-| `AGENT_HISTORY_FILE` | No | Custom path for legacy root chat history (default: `chat_history.json`) |
-| `AGENT_TOKEN_GRAPH_FILE` | No | Custom path for token Knowledge Graph (default: `token_graph.json`) |
-| `AGENT_SESSIONS_DIR` | No | Custom path for sessions directory (default: `sessions`) |
-| `AGENT_SESSIONS_INDEX_FILE` | No | Custom path for sessions index file (default: `sessions.json`) |
+| `API_KEY` | Yes* | Your OpenAI or compatible API key (prompted interactively by the setup wizard if missing, then saved to `~/.clic/.env`) |
+| `BASE_URL` | No | OpenAI-compatible endpoint base URL (default: `https://api.openai.com/v1`; also prompted and saved by setup wizard) |
+| `CLIC_HOME` | No | Override the global CLIC root directory (default: `~/.clic`); useful for CI or multi-user setups |
+| `SEARCH_MODEL` | No | Model used by `web_search` tool (default: `gpt-5`); independent of the active chat model |
 | `CLIC_MODEL` | No | Set automatically at startup to the active model; read by `web_search` and other tools at call time |
+| `AGENT_HISTORY_FILE` | No | Override `historyFile()` verbatim, bypassing `projectRoot()` (backward-compat + tests) |
+| `AGENT_TOKEN_GRAPH_FILE` | No | Override `tokenGraphFile()` verbatim (backward-compat + tests) |
+| `AGENT_SESSIONS_DIR` | No | Override `sessionsDir()` verbatim (backward-compat + tests) |
+| `AGENT_SESSIONS_INDEX_FILE` | No | Override `sessionsIndexFile()` verbatim (backward-compat + tests) |
 
 ---
 
