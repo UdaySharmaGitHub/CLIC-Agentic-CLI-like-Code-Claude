@@ -41,6 +41,7 @@ import { loadPricing } from './pricing.js';
 // Auto Context Window Guard + Auto-Compact
 import { getContextLimit, CONTEXT_GUARD_THRESHOLD, HISTORY_LOAD_LIMIT } from './config.js';
 import { runCompact } from './commands/compact.js';
+import { runPing } from './commands/ping.js';
 
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -332,6 +333,14 @@ async function main(prompt: string | undefined, opts: {
     await terminalManager.killAll();
     return;
   }
+
+  // ── Startup ping result (REPL path only) ─────────────────────────────────
+  const pingPromise = runPing(client, model);
+  const pingTimeout = new Promise<string>(resolve =>
+    setTimeout(() => resolve('⏱  Ping timed out — check BASE_URL in .env'), 4000)
+  );
+  const pingResult = await Promise.race([pingPromise, pingTimeout]);
+  console.log(`  ${pingResult}`);
 
   // ── REPL ──────────────────────────────────────────────────────────────────
 
